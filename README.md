@@ -63,7 +63,7 @@ Eine ungültige explizite Erweiterungsantwort beendet die Verbindung vor dem ers
 
 - **`LIBS-*.json`**: C#-Format mit `Name`, `Wavelengths` und `Elements: [{Name, Intensities}]`. Alle enthaltenen Spezies werden separat angezeigt. Mehrere Dateien lassen sich gleichzeitig importieren. Ein erneuter Import derselben Kombination aus Bibliotheksname und Spezies ersetzt den früheren Eintrag.
 - **`.spect`**: C#-Spektrum mit `Name`, `Wavelengths`, `Intensities` und optionalen Metadaten. Es wird als gespeicherte Aufnahme geladen. Aufnahmen lassen sich ausblenden, umbenennen, färben, entfernen und wieder als `.spect` exportieren.
-- **`SensorConfig.json`**: C#-Polynome `LambdaMap`, `IntensityScaling`, `IntensityOffset`, Dunkelbild und Aufnahmeeinstellungen. C#-Zeitwerte werden aus 2-MHz-Ticks in µs umgerechnet. Die älteren C#-Defaults SH=10 und ICG=7400 entsprechen nur 5 beziehungsweise 3700 µs; diese Werte müssen vor Start der Web-Messung auf gültige Zeiten gesetzt werden. Die Web-App erhält beim Import die Werte und meldet ungültige Einstellungen beim Messstart.
+- **`*.calibration.json`**: natives Web-Kalibrierprofil mit Wellenlängenpolynom, Zuordnungen, präzisem Dunkelbild, relativer Amplitudenkurve und Aufnahmezeiten. Im Kalibrierdialog importierbar/exportierbar und per Drag & Drop importierbar. Alte `SensorConfig.json`-Dateien können weiterhin Wellenlängen, Dunkelbild und Aufnahmezeiten liefern; die frühere Scale-/Offset-Darstellung wird nicht mehr verwendet.
 
 Einzelne Bibliotheksdateien dürfen bis zu 64 MB groß sein. Dateien mit fehlenden, unterschiedlich langen oder nicht endlichen Datenreihen werden mit sichtbarer Fehlermeldung abgewiesen. Wellenlängen werden sortiert; doppelte Wellenlängen werden mit der jeweils höchsten Intensität zusammengeführt. Bereits serialisierte `IntensitiesNormalized`-Caches aus C# werden ignoriert und neu berechnet.
 
@@ -82,11 +82,11 @@ Die Referenzkurven werden auf ihr eigenes Maximum normiert und über die rechte 
 
 ADC-Statistiken werden unter `Metadata.adc` mit Captures gespeichert. Ältere `.spect`-Dateien, Referenzen und Demo-Kurven ohne Rohdatenstatistik zeigen **ADC —**; aus normierten Intensitäten wird keine Aussteuerung geschätzt.
 
-- Die pixelweise Dunkelbildkorrektur verwendet die letzte vollständige **Rohaufnahme** und schneidet negative Rohdifferenzen auf null ab.
+- Die pixelweise Dunkelbildkorrektur verwendet das im Assistenten gemittelte Dunkelbild und schneidet negative Rohdifferenzen auf null ab. Separate Dunkelbild- oder Löschen-Buttons gibt es nicht mehr; neue Dunkelbilder entstehen ausschließlich im Kalibrierassistenten.
 - Wellenlängen werden mit einem kubischen Polynom aus Detektorpixel 0–3693 berechnet. Der Kalibrierdialog erlaubt direkte Koeffizienten oder eine lineare, quadratische beziehungsweise kubische Anpassung aus Pixel-/Wellenlängenpaaren. Für den Fit werden QR-Zerlegung sowie zentrierte und skalierte Pixelwerte verwendet; der RMS-Fehler wird angezeigt. Die Zuordnung muss über den gesamten Detektor streng monoton sein. Eine absteigende Zuordnung wird sortiert dargestellt; ein umkehrendes oder konstantes Polynom wird abgewiesen.
-- Die Intensitätskorrektur folgt dem C#-Modell: `((raw - min(raw, dark)) / 65535) * scale(λ) + offset(λ)`. Bei Anzeige in ADC-Counts wird das Ergebnis mit 65535 multipliziert. **Normalize intensity** normiert anschließend auf das Maximum. Das ADC-Wireformat bleibt 16 Bit; diese Skalierung ist keine physikalische Intensitätskalibrierung.
+- Die Intensitätsverarbeitung arbeitet direkt mit ADC-Counts: `max(0, raw - dark) × gain(λ)`. Ohne gelernte/aktivierte Amplitudenkurve ist `gain = 1`. Danach folgen Plot-Gruppenmittelung und optional **Normalize intensity**. Die Skalierung durch 65535, die alten Intensitätspolynome und die C#-bezogene Einheitenwahl sind entfernt. Korrigierte Counts sind relative Werte; die ADC-Aussteuerung wird weiterhin aus den unveränderten Rohdaten bestimmt.
 - Eine einstellbare Gruppenmittelung reduziert die Plotauflösung, ohne Restpixel am Ende zu verwerfen. Gespeicherte Aufnahmen bewahren ihre zum Speicherzeitpunkt verarbeiteten Werte; spätere Kalibrieränderungen rechnen sie nicht rückwirkend um.
-- Konfiguration und Dunkelbild können im Kalibrierdialog importiert/exportiert werden. Der Export enthält sowohl Web-Einstellungen als auch die C#-Felder.
+- Der Kalibrierdialog bietet natives Importieren/Exportieren und eine Vergleichsoption zum Aktivieren/Deaktivieren der gelernten Amplitudenkurve.
 
 ### Kalibrierassistent
 
@@ -97,13 +97,28 @@ ADC-Statistiken werden unter `Metadata.adc` mit Captures gespeichert. Ältere `.
 3. Der Assistent zeigt das dunkelbildkorrigierte **Emission spectrum in ursprünglichen Detektorpixeln 0–3693**. Die vorhandene Wellenlängenkalibrierung und die normale Plot-Gruppenmittelung werden dabei nicht verwendet. Peak anklicken, bekannte Wellenlänge in nm eingeben, **Zuordnung hinzufügen**. Alternativ lässt sich die Pixelposition direkt eingeben, auch mit Nachkommastellen. Mausrad, Verschieben und Einpassen funktionieren im Assistentenplot ebenfalls.
 4. Nach beliebig vielen Linien mit **Zuordnungen korrekt · Übernehmen** diese Referenz bestätigen. **Weitere Referenz** wiederholt Aufnahme und Zuordnung für eine andere Lichtquelle. Bereits bestätigte Referenzen bleiben erhalten und können bearbeitet oder entfernt werden. Eine erneute Aufnahme einer bereits bestätigten Referenz ersetzt sie nach erneuter Bestätigung.
 5. Der Fit verwendet gemeinsam alle bestätigten Pixel-/Wellenlängenpaare. Standardmäßig wird automatisch linear bei zwei, quadratisch bei drei und kubisch ab vier verschiedenen Pixelpositionen angepasst. Der Grad ist auch manuell wählbar. Die Übersicht zeigt Koeffizienten, RMS der Zuordnungsfehler und die Abweichung jeder einzelnen Linie. RMS ist ein Fit-Residuum und keine Aussage über die absolute Messunsicherheit. Außerhalb der zugeordneten Pixelpositionen wird extrapoliert.
-6. **Fertig · Kalibrierung anwenden** übernimmt Polynom und gemitteltes Dunkelbild gemeinsam. Die zuletzt gemittelte Referenz erscheint anschließend mit der neuen Wellenlängenachse im Hauptplot. Der Assistent speichert auch Referenzaufnahmen und Zuordnungen lokal; die Zuordnungen sind danach im bestehenden manuellen Fit-Bereich sichtbar, auch nach einem Reload. Eine neue Assistentensitzung beginnt mit einem neuen Dunkelbild.
+6. **Weiter · optionale Amplitude** öffnet Schritt 3: Halogenstrahler auf denselben Sensor-Eingang und durch denselben Lichtweg richten, bestätigen und erneut mitteln. Gemessene Kurve, korrigierte Kurve und Zielprofil werden gemeinsam dargestellt. Der Schritt kann ausdrücklich übersprungen werden.
+7. **Fertig · Alles übernehmen** beziehungsweise **Überspringen · ohne Amplitude fertig** speichert das gesamte Profil gemeinsam. Im Hauptplot erscheint die zuletzt gemittelte Referenz mit der neuen Kalibrierung. Zugeordnete Linien bleiben im manuellen Fit-Bereich verfügbar. Eine neue Assistentensitzung beginnt mit einem neuen Dunkelbild.
 
 Eine laufende Live-Messung wird beim Öffnen zunächst nach dem laufenden Frame pausiert. Ein wartender externer Trigger wird durch Trennen und erneutes Identifizieren desselben Ports beendet. Falls noch kein Gerät verbunden ist, lässt es sich direkt im Assistenten verbinden. Während der Assistent arbeitet, werden ausschließlich seine eigenen Aufnahmen angefordert; der normale Triggerbetrieb wird dabei nicht aktiviert. Nach dem Assistenten lässt sich die reguläre Messung mit **Start acquisition** beziehungsweise **Arm trigger** fortsetzen.
 
 Mindestens zwei verschiedene Pixelpositionen sind nötig. Widersprüchliche Wellenlängen am selben Pixel sowie Polynome, die innerhalb des Detektors umkehren, werden vor der Übernahme abgewiesen. Gesättigte Referenz- oder Dunkelaufnahmen werden nicht gemittelt übernommen und lassen sich wiederholen. Bei Abbruch während einer Aufnahme wird der Port geschlossen, damit kein Teilframe in eine spätere Messung gerät. Die zuvor angewendete Kalibrierung wird erst nach erfolgreichem **Fertig** ersetzt.
 
-Der Web-Konfigurationsexport enthält das gemittelte Dunkelbild mit Nachkommastellen unter `darkFrame`; das zusätzliche C#-Feld `DarkFrame` enthält gerundete Ganzzahlen für die Kompatibilität mit dem bisherigen C#-Tool. Beim erneuten Web-Import wird die präzise Variante bevorzugt.
+### Relative Halogen-Amplitudenkorrektur
+
+Die Default-Zielkurve ist eine glatte S-Form mit zunächst flacherem Anstieg im Blau, maximaler Steigung nahe 565 nm und flacher werdendem Verlauf im Rot. Mittelpunkt und Breite sind veränderbar. Das ist eine explizite **relative Zielannahme** gemäß der gewünschten Kurvenform, keine universelle Kurve aller Halogenlampen. Alternativ steht ein Planck-Ziel mit eingetragener Farbtemperatur zur Verfügung. Eine bekannte Farbtemperatur ist bei relativen Halogen-Referenzverfahren eine wichtige Voraussetzung; absolute Kalibrierung braucht eine vermessene Referenzquelle, siehe [OceanView-Handbuch](https://oceanoptics.cn/wp-content/uploads/2024/05/oceanviewioperation-manual.pdf) und [NIST-Spektroradiometrie](https://www.nist.gov/programs-projects/spectroradiometry-sources).
+
+Hochvolt-/Niedervolt-Typ und Lichtweg/Faser werden als Herkunft des Profils dokumentiert. Die Spannungsart allein legt keine verlässliche Farbtemperatur fest und wählt deshalb nicht heimlich eine andere physikalische Kurve. Aus einer unbekannten Lampe und einem unbekannten Lichtleiter lassen sich deren Einflüsse und die Detektorantwort nicht eindeutig getrennt identifizieren. Die App lernt eine gemeinsame relative Systemkorrektur für den verwendeten Aufbau. Nach Wechsel von Lampe, Faser oder wesentlichen optischen Komponenten sollte sie neu angelernt werden.
+
+Das Lernen verwendet das vorab gemittelte Dunkelbild und die neue Wellenlängenzuordnung. Median-Bins unterdrücken schmale Ausreißer; eine Gauß-Glättung des logarithmischen Verhältnisses `Ziel / gemessenes Kontinuum` erfasst den breiten Empfindlichkeitsverlauf. Die Interpolation erfolgt kubisch mit stetiger erster Ableitung und begrenzten Faktoren, standardmäßig zwischen 1/8 und 8. Die relative Normierung ist am eingestellten Mittelpunkt verankert. Die Glättung wirkt auf die **gelernte Korrekturfunktion**, nicht als Filter auf spätere schmale Emissionslinien.
+
+Gelernt wird im längsten zusammenhängenden Bereich mit hinreichendem Signal: mindestens 5 Counts über Dunkelbild beziehungsweise 1 % des Referenzmaximums, je nachdem, was höher ist, und mindestens 80 nm Breite. Dunkle Abschnitte oder Faser-Cutoffs werden nicht durch hohe Verstärkung künstlich rekonstruiert. Der tatsächlich verwendete Bereich wird angezeigt. Außerhalb folgt ein kurzer, expliziter weicher Randübergang zur Originalskala; weiter außen ist der Faktor 1. Der Randübergang ist eine Glättungsannahme und keine zusätzlich vermessene Kalibrierung. Gesättigte Einzelbilder werden bereits vor dem Mitteln abgewiesen.
+
+### Local Storage und Kalibrierdateien
+
+Das kompakte aktive Profil wird unter `spectrum-plotter-web.calibration.v2` in **Local Storage** gespeichert und beim Start wieder geladen. Es enthält Polynom, Zuordnungen, Dunkelbild mit Nachkommastellen, gelernte Korrekturstützstellen, Zielparameter, Lampen-/Lichtwegangaben und Aufnahmezeiten. **Kalibrierung exportieren** erzeugt `spectrum.calibration.json`; **Kalibrierung importieren** prüft Version, Datenlängen, monotones Polynom und endliche/begrenzte Korrekturwerte, bevor das Profil übernommen wird. Die präzisen Daten werden ohne C#-Zusatzfelder exportiert.
+
+Referenzrohaufnahmen und der übrige Workspace bleiben zusätzlich in IndexedDB. Das aktive Kalibrierprofil kann allein aus Local Storage wiederhergestellt werden, selbst wenn IndexedDB leer ist. Eine ungültige Importdatei oder ein Abbruch ersetzt das bestehende Profil nicht. Bei manuell geändertem Wellenlängenpolynom wird eine vorherige Amplitudenkurve verworfen und kann im Assistenten neu angelernt werden. Browser-Speicher ist an den Origin gebunden; zum Übertragen oder Sichern die Kalibrierdatei exportieren.
 
 ### Matching
 
@@ -124,7 +139,7 @@ Die ersten drei Methoden können negative Werte beziehungsweise Werte über 100 
 - Doppelklick, **Fit** oder Taste **F**: sichtbare Daten vollständig einpassen. Plus/Minus funktionieren auch bei fokussiertem Plot.
 - Cursor: genaue Wellenlänge und Intensität. **Peaks** schaltet lokale Maxima samt Beschriftung ein/aus.
 - **Save capture** oder Taste **S**: aktuelle Kurve speichern. **CSV** exportiert die angezeigten Werte, **PNG** den aktuellen Plot.
-- Referenzen, Captures, Kalibrierung und Dunkelbild bleiben über IndexedDB in diesem Browser/Origin erhalten. Die laufende Messung wird erst mit **Save capture** dauerhaft gespeichert. Ein anderer Host/Port hat einen separaten Speicher; zum Übertragen Export verwenden.
+- Referenzen und Captures bleiben in IndexedDB; das aktive Kalibrierprofil zusätzlich in Local Storage. Die laufende Messung wird erst mit **Save capture** dauerhaft gespeichert. Ein anderer Host/Port hat einen separaten Speicher; zum Übertragen Export verwenden.
 
 Beim ersten Start wird ein deutlich markiertes **synthetisches Demo** angezeigt. Die Kurven sind keine NIST-Daten und keine Messungen. Das Importieren echter Referenzen/Aufnahmen oder der erste Hardwareframe entfernt die Demo-Referenzen. **Explore demo** lädt die Demo erneut und erhält vorhandene Benutzerdateien. Es gibt bewusst keinen NIST-Fetcher und keine Netzwerkanfragen an NIST.
 
@@ -155,6 +170,8 @@ Die Tests prüfen das echte Encoding/Decoding, fragmentierte Web-Serial-Streams 
 | `adc.js` | Aussteuerung des 12-Bit-ADCs, Sättigung und Prüfung gespeicherter ADC-Statistiken |
 | `calibration.js` | Präzise Mittelung, Dunkelbildkorrektur und gemeinsamer Pixel-/Wellenlängenfit |
 | `calibration-wizard.js` | Geführte Aufnahme, Fortschritt, Peak-Zuordnungen und Prüfung vor der Übernahme |
+| `amplitude.js` | Relative Halogen-Zielprofile, robuste Glättung und begrenzte glatte Korrekturfunktion |
+| `calibration-profile.js` | Native Profilprüfung, Local Storage und portables Kalibrierformat |
 | `plot.js` | Canvas-Spektralplot, Cursor, Zoom, Peak-Markierungen und Sparklines |
 | `storage.js` | Lokale IndexedDB-Speicherung |
 | `server.mjs` | Optionaler statischer Entwicklungsserver |
