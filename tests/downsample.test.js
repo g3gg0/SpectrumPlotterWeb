@@ -11,7 +11,7 @@ function packed(values,format){
   }return output;
 }
 class Port{
- constructor({badAck=false,badHeader=false}={}){
+ constructor({badAck=false,badHeader=false,info=INFO}={}){
   this.writes=[];this.stride=1;this.format=0;this.frame=0;
   this.readable=new ReadableStream({start:c=>this.c=c,cancel:()=>{}});
   const send=bytes=>{for(let i=0;i<bytes.length;i+=7)this.c.enqueue(bytes.slice(i,i+7));};
@@ -19,9 +19,9 @@ class Port{
     const cmd=new Uint8Array(bytes);this.writes.push(cmd);const view=new DataView(cmd.buffer);
     if(cmd[10]===2&&cmd[6]===255){
       if(cmd[7]!==66)return send(new TextEncoder().encode('[g3gg0.de]'));
-      const json=new TextEncoder().encode(JSON.stringify(INFO)),packet=new Uint8Array(12+json.length);packet.set(new TextEncoder().encode('[g3gg0.v1]'));new DataView(packet.buffer).setUint16(10,json.length);packet.set(json,12);send(packet);
+      const json=new TextEncoder().encode(JSON.stringify(info)),packet=new Uint8Array(12+json.length);packet.set(new TextEncoder().encode('[g3gg0.v1]'));new DataView(packet.buffer).setUint16(10,json.length);packet.set(json,12);send(packet);
     }else if(cmd[10]===2&&cmd[6]===254){
-      this.stride=view.getUint16(2);this.format=cmd[11]>>4;
+      this.stride=view.getUint16(2);this.format=(cmd[11]>>4)&3;
       const ack=Uint8Array.of(68,83,cmd[11],badAck?1:0,0,this.stride,0,0);new DataView(ack.buffer).setUint16(6,Math.ceil(PIXELS/this.stride));send(ack);
     }else if(cmd[10]===0){
       this.frame++;const full=Array.from({length:PIXELS},(_,i)=>i===1?4095:i),samples=full.filter((_,i)=>i%this.stride===0);
@@ -81,4 +81,20 @@ test('invalid acknowledgements/headers never publish a frame and disconnect safe
   assert.equal(frames.length,0);assert.equal(errors.length,1);assert.equal(port.closed,true);
  }
  assert.throws(()=>validateDownsampleAck(new Uint8Array(8),2));assert.throws(()=>decodeDownsampleHeader(new Uint8Array(16),2));
+});
+
+test('fast acquisition is explicitly negotiated and disabled for external triggers and calibration',async()=>{
+ const fastInfo={...INFO,features:[...INFO.features,'fast-acquisition-v1']};
+ const port=new Port({info:fastInfo}),frames=[],device=new Spectrometer({onFrame:(raw,m)=>frames.push(m)});await device.connect(port);
+ await device.start({resample:64,encoding:'log8'},{single:true});
+ assert.equal(port.writes.filter(c=>c[6]===254).at(-1)[11],0x71);assert.equal(frames[0].fastAcquisition,true);
+ assert.ok(Object.values(frames[0].timings).every(v=>Number.isFinite(v)&&v>=0));
+ let calibration;
+ await device.captureBatch({resample:64,encoding:'log8'},{count:1,onFrame:(raw,m)=>{calibration=m;assert.equal(raw.length,PIXELS);}});
+ assert.equal(port.writes.filter(c=>c[6]===254).at(-1)[11],1);assert.equal(calibration.fastAcquisition,false);
+ await device.start({triggered:true,resample:64,encoding:'log8'},{single:true});
+ assert.equal(port.writes.filter(c=>c[6]===254).at(-1)[11],0x31);assert.equal(frames[1].fastAcquisition,false);
+ await device.disconnect();
+ const oldPort=new Port(),oldDevice=new Spectrometer();await oldDevice.connect(oldPort);await oldDevice.start({resample:64,encoding:'log8'},{single:true});
+ assert.equal(oldPort.writes.filter(c=>c[6]===254).at(-1)[11],0x31);await oldDevice.disconnect();
 });

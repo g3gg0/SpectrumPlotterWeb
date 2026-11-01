@@ -215,7 +215,7 @@ function renderConnection(status,details){
 }
 function renderTransfer(){
   const n=downsampleStride(device.buildInfo,state.config.resample),count=Math.ceil(PIXELS/n),format=device.buildInfo?.features.includes('sample-encoding-v1')?SAMPLE_ENCODINGS.indexOf(state.config.encoding):0;
-  $('#transfer-status').textContent=!device.verified?'Automatic after connect':device.buildInfo?.features.includes('downsample-v1')?`${count.toLocaleString()} wire samples · every ${n}th pixel · ${Math.ceil(count*encodingBits(format)/8)+(n>1||format?16:0)} bytes/frame · ${SAMPLE_ENCODINGS[format]}`:'Legacy firmware · full frames, plot reduced in browser';
+  $('#transfer-status').textContent=!device.verified?'Automatic after connect':device.buildInfo?.features.includes('downsample-v1')?`${count.toLocaleString()} wire samples · every ${n}th pixel · ${Math.ceil(count*encodingBits(format)/8)+(n>1||format?16:0)} bytes/frame · ${SAMPLE_ENCODINGS[format]} · ${device.buildInfo?.features.includes('fast-acquisition-v1')&&!state.config.triggered?'Fast live clock':'Flush each frame'}`:'Legacy firmware · full frames, plot reduced in browser';
 }
 function renderDeviceInfo(details){
   renderTransfer();
@@ -249,6 +249,7 @@ const device=new Spectrometer({onState:renderConnection,onError:report,onProgres
   }
   const now=performance.now(),interval=state.lastFrame?now-state.lastFrame:0;state.lastFrame=now;
   $('#metric-rate').textContent=interval?`${(1000/interval).toFixed(1)} frames/s`:'First frame received';
+  const t=metadata.timings;$('#metric-rate').title=t?`Host-observed frame: configure ${t.configureMs.toFixed(1)} ms · wait ${t.waitForDataMs.toFixed(1)} ms · receive ${t.receiveMs.toFixed(1)} ms · total ${t.totalMs.toFixed(1)} ms. ${metadata.fastAcquisition?'Fast live clock enabled; first frame/timing changes still warm up.':'Full flush/start for every frame.'}`:'';
   updatePlot(wasDemo||state.frames===1);
   if(metadata.triggered&&state.config.autoCapture)captureCurrent(true);
   if(metadata.triggered&&state.config.autoMatch)scheduleMatching();

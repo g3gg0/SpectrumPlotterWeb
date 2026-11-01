@@ -21,6 +21,7 @@ export function deviceInfoRows(info, usb={}) {
     ['Protocol', info?`Build information v${info.protocol}`:'Legacy identity only'],
     ['Downsample', info?.features?.includes('downsample-v1')?`Supported · stride 1–${info.max_downsample}`:'Not supported'],
     ['Sample encoding',info?.features?.includes('sample-encoding-v1')?'Raw 16 / lossless 12 / logarithmic 10 / logarithmic 8 bit':'16-bit container'],
+    ['Fast live acquisition',info?.features?.includes('fast-acquisition-v1')?'Supported · retained SH/ICG clock':'Not supported · flush before every frame'],
     ['Built', buildDate(info)],
     ['Commit', info?.commit||'Not available'],
     ['Working tree', info?.dirty===true?'Modified (dirty)':info?.dirty===false?'Clean':'Unknown'],

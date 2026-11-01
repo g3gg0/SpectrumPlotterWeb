@@ -57,6 +57,7 @@ export function parseBuildInfo(bytes) {
   }
   if (info.features.includes('downsample-v1') && (info.max_downsample > 64 || !info.max_downsample || info.pixels !== PIXELS || info.adc_bits !== 12)) throw new Error('Unsupported downsample geometry');
   if (info.features.includes('sample-encoding-v1') && !info.features.includes('downsample-v1')) throw new Error('Sample encoding requires downsample framing');
+  if (info.features.includes('fast-acquisition-v1') && !info.features.includes('downsample-v1')) throw new Error('Fast acquisition requires downsample configuration');
   return info;
 }
 
@@ -74,18 +75,18 @@ export function downsampleStride(info, resolution = PIXELS) {
   return info?.features?.includes('downsample-v1') ? Math.min(info.max_downsample, Math.ceil(PIXELS / resolution)) : 1;
 }
 
-export function downsampleCommand(config, stride, encoding = 0) {
+export function downsampleCommand(config, stride, encoding = 0, fast = false) {
   if (!Number.isInteger(stride) || stride < 1 || stride > 64) throw new Error('Invalid sample stride');
   if (!Number.isInteger(encoding) || encoding<0 || encoding>3) throw new Error('Invalid sample encoding');
-  const command = Uint8Array.of(69,82,0,0,0,0,254,config.triggered?0:2,68,49,2,1|(encoding<<4));
+  const command = Uint8Array.of(69,82,0,0,0,0,254,config.triggered?0:2,68,49,2,1|(encoding<<4)|(fast?0x40:0));
   const view = new DataView(command.buffer);
   view.setUint16(2,stride,false);view.setUint16(4,config.delayUs,false);
   return command;
 }
 
-export function validateDownsampleAck(bytes, stride, encoding = 0) {
+export function validateDownsampleAck(bytes, stride, encoding = 0, fast = false) {
   const view = new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
-  if (bytes.length !== 8 || bytes[0] !== 68 || bytes[1] !== 83 || bytes[2] !== (1|(encoding<<4)) || bytes[3] !== 0 || view.getUint16(4) !== stride || view.getUint16(6) !== Math.ceil(PIXELS/stride)) throw new Error('Invalid downsample acknowledgement');
+  if (bytes.length !== 8 || bytes[0] !== 68 || bytes[1] !== 83 || bytes[2] !== (1|(encoding<<4)|(fast?0x40:0)) || bytes[3] !== 0 || view.getUint16(4) !== stride || view.getUint16(6) !== Math.ceil(PIXELS/stride)) throw new Error('Invalid downsample acknowledgement');
 }
 
 export function decodeDownsampleHeader(bytes, stride, encoding = 0) {
@@ -244,7 +245,7 @@ export class Spectrometer {
   async acquire(config, single) {
     try {
       do {
-        const frame = await this.readFrame(config, {resolution:this.targetResolution,encoding:this.targetEncoding});
+        const frame = await this.readFrame(config, {resolution:this.targetResolution,encoding:this.targetEncoding,fast:true});
         if (this.closing) break;
         this.onFrame(frame.raw, frame.metadata);
         if (single) this.running = false;
@@ -261,24 +262,29 @@ export class Spectrometer {
     if (!SAMPLE_ENCODINGS.includes(encoding)) throw new Error('Invalid sample encoding');
     this.targetEncoding=encoding;
   }
-  async readFrame(config, {resolution=PIXELS,encoding='raw16'}={}) {
+  async readFrame(config, {resolution=PIXELS,encoding='raw16',fast=false}={}) {
+    const started=performance.now();let firstByte=null;
+    const markFirstByte=received=>{if(received>0&&firstByte===null)firstByte=performance.now();};
     const stride=downsampleStride(this.buildInfo,resolution), count=Math.ceil(PIXELS/stride);
     const format=this.buildInfo?.features.includes('sample-encoding-v1')?SAMPLE_ENCODINGS.indexOf(encoding):0;
+    const fastAcquisition=Boolean(fast&&!config.triggered&&this.buildInfo?.features.includes('fast-acquisition-v1'));
     const framed=stride>1||format>0,payloadBytes=Math.ceil(count*encodingBits(format)/8);
     this.onState(config.triggered ? 'armed' : 'acquiring', config);
     if (this.buildInfo?.features.includes('downsample-v1')) {
-      await this.writer.write(downsampleCommand(config,stride,format));
-      validateDownsampleAck(await this.inbox.read(8),stride,format);
+      await this.writer.write(downsampleCommand(config,stride,format,fastAcquisition));
+      validateDownsampleAck(await this.inbox.read(8),stride,format,fastAcquisition);
     } else {
       await this.writer.write(triggerCommand(config));
       // Legacy firmware has one shared command buffer.
       await new Promise(resolve=>setTimeout(resolve,3));
     }
     await this.writer.write(captureCommand(config));
+    const captureSent=performance.now();
     const firstTimeout=config.triggered?0:Math.max(3000,config.icgUs/1000*(config.averages+8)+1500);
-    const adc=framed?decodeDownsampleHeader(await this.inbox.read(16,{firstTimeout}),stride,format):undefined;
-    const bytes=await this.inbox.read(payloadBytes,{firstTimeout:framed?2000:firstTimeout,progress:this.onProgress});
-    return {raw:decodeSamples(bytes,count,format),metadata:{time:new Date().toISOString(),...config,buildInfo:this.buildInfo,sampleStride:stride,fullPixels:PIXELS,transmittedSamples:count,encoding:SAMPLE_ENCODINGS[format],wireBytes:payloadBytes+(framed?16:0),...(adc?{adc}:{})}};
+    const adc=framed?decodeDownsampleHeader(await this.inbox.read(16,{firstTimeout,progress:markFirstByte}),stride,format):undefined;
+    const bytes=await this.inbox.read(payloadBytes,{firstTimeout:framed?2000:firstTimeout,progress:(received,total)=>{markFirstByte(received);this.onProgress(received,total);}});
+    const completed=performance.now(),timings={configureMs:captureSent-started,waitForDataMs:Math.max(0,firstByte-captureSent),receiveMs:completed-firstByte,totalMs:completed-started};
+    return {raw:decodeSamples(bytes,count,format),metadata:{time:new Date().toISOString(),...config,timings,buildInfo:this.buildInfo,sampleStride:stride,fullPixels:PIXELS,transmittedSamples:count,encoding:SAMPLE_ENCODINGS[format],fastAcquisition,wireBytes:payloadBytes+(framed?16:0),...(adc?{adc}:{})}};
   }
   captureBatch(settings, {count=32,signal,onFrame=()=>{},onProgress=()=>{}}={}) {
     if (!this.verified || this.closing) throw new Error('Connect a verified spectrometer first');
