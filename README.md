@@ -32,9 +32,9 @@ Acquisition-Einstellungen werden während einer laufenden Messfolge gesperrt. Zu
 
 Neben **Connect** öffnet der Dropdown-Pfeil **Update firmware**. Einen Commit-Build auswählen, den geprüften Download abwarten und **Save firmware.bin...** anklicken. Im Speichern-unter-Dialog das USB-Laufwerk **NODE_F401RE** auswählen. Es wird ausschließlich die BIN-Datei geschrieben, nicht HEX oder ELF. Vor dem Schreiben schließt die App die serielle Verbindung.
 
-Diese Funktion benötigt den mitgelieferten lokalen Node-Server (`npm start`) für GitHub-Downloads und Desktop-Chrome/Edge mit File System Access auf localhost/HTTPS. Eine rein statische GitHub-Pages-Installation bietet den Firmware-Proxy nicht. Nach Serveränderungen den Node-Server neu starten. GitHub-API-Limits und Downloadfehler werden sichtbar gemeldet.
+Diese Funktion läuft vollständig im Browser, auch bei statischer Bereitstellung der App über GitHub Pages. Der Firmware-Workflow veröffentlicht einen Katalog unter `https://g3gg0.github.io/tcd1304-advanced/catalog.json`. Im Firmware-Repository muss **Settings → Pages → Source: GitHub Actions** aktiviert sein. Es ist kein lokaler Download-Proxy erforderlich. Zum Speichern benötigt der Browser Desktop-Chrome/Edge mit File System Access auf localhost/HTTPS. Download- und Prüffehler werden sichtbar gemeldet.
 
-Der Server bezieht Prereleases von `g3gg0/tcd1304-advanced`, prüft Commit-Zuordnung, F401RE-Board, Binärgröße, SHA-256 aus `manifest.json` und die Startvektoren. Ältere Builds lassen sich nachladen. Das Manifest ist eine Integritätsprüfung, keine kryptografische Signatur.
+Der Browser lädt die veröffentlichten Firmware-Builds direkt aus dem Pages-Archiv und prüft Commit-Zuordnung, F401RE-Board, Binärgröße, SHA-256 aus `manifest.json` und die Startvektoren. Ältere Builds lassen sich nachladen. Das Manifest ist eine Integritätsprüfung, keine kryptografische Signatur. Die zusätzlichen Prereleases bleiben auf GitHub verfügbar; ihre Download-URLs sind aufgrund von GitHubs CORS-Regeln nicht für JavaScript-Downloads geeignet.
 
 Während ST-Link programmiert, das Board nicht abziehen. Anschließend das Laufwerk auf `FAIL.TXT` prüfen und erneut verbinden, um die vom Gerät gemeldete Commit-ID zu kontrollieren. Ein erfolgreicher Schreibvorgang allein bestätigt **nicht** den erfolgreichen Flashvorgang.
 

@@ -344,7 +344,7 @@ function openSettings(){
   const form=$('#settings-form');
   state.config.lambda.forEach((value,i)=>form.elements[`lambda${i}`].value=formatCoefficient(value));
   const amplitude=state.config.amplitude;
-  $('#amplitude-enabled').checked=state.config.amplitudeEnabled;$('#amplitude-enabled').disabled=!amplitude;
+  $('#amplitude-enabled').checked=Boolean(amplitude)&&state.config.amplitudeEnabled;$('#amplitude-enabled').disabled=!amplitude;
   $('#amplitude-status').textContent=amplitude?`Relative Halogenkorrektur · ${amplitude.startNm.toFixed(1)}–${amplitude.endNm.toFixed(1)} nm · ${amplitude.options.model==='planck'?`Planck-Ziel ${amplitude.options.temperatureK} K`:'weiches S-Ziel'} · Glättung ${amplitude.options.smoothingNm} nm.`:'Noch nicht angelernt. Optional im Kalibrierassistenten eine Halogenreferenz aufnehmen.';
   $('#calibration-storage-status').textContent=state.profile?`Lokal gespeichert · ${state.profile.createdAt.replace('T',' ').replace('Z',' UTC')}`:'Kalibrierung wird lokal im Browser gespeichert.';
   $('#fit-result').textContent='';$('#settings-dialog').showModal();

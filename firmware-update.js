@@ -1,3 +1,5 @@
+import {listFirmwareBuilds,loadFirmwareBinary} from './firmware.js';
+
 export function setupFirmwareUpdate({disconnect,report,log}){
   const $=id=>document.getElementById(id);
   const dialog=$('firmware-dialog'),menu=$('connect-menu'),toggle=$('connect-options');
@@ -5,27 +7,20 @@ export function setupFirmwareUpdate({disconnect,report,log}){
   let nextPage=1,bytes=null,selection=0,busy=false,loading=false;
   function closeMenu(){menu.hidden=true;toggle.setAttribute('aria-expanded','false');}
   function message(text,error=false){status.textContent=text;status.classList.toggle('firmware-error',error);}
-  async function request(path){
-    const response=await fetch(path,{cache:'no-store',signal:AbortSignal.timeout(45000)});
-    if(!response.ok){
-      const type=response.headers.get('content-type')||'';
-      const detail=type.includes('application/json')?(await response.json()).error:null;
-      throw new Error(detail||'Firmware updates require the local Node server (npm start). GitHub may also be unavailable.');
-    }
-    return response;
-  }
+  let builds=[];
   async function load(){
     if(loading||!nextPage)return;
     loading=true;
     more.disabled=true;message('Loading published commit builds...');
     try{
-      const {builds,nextPage:next}=await (await request(`/api/firmware/releases?page=${nextPage}`)).json();
-      for(const build of builds){
-        const option=document.createElement('option');option.value=String(build.id);
+      if(nextPage===1)builds=await listFirmwareBuilds();
+      const start=(nextPage-1)*30;
+      for(const build of builds.slice(start,start+30)){
+        const option=document.createElement('option');option.value=build.commit;
         option.textContent=`${build.date?.slice(0,10)||''} · ${build.commit.slice(0,12)} · ${build.name}`;
         option.dataset.commit=build.commit;select.append(option);
       }
-      nextPage=next;more.hidden=!next;select.disabled=select.options.length===1;
+      nextPage=start+30<builds.length?nextPage+1:null;more.hidden=!nextPage;select.disabled=select.options.length===1;
       message(select.disabled?'No published commit builds yet. Push the firmware workflow to GitHub first.':'Choose a build to download and verify.');
     }catch(error){message(error.message,true);report(error);}
     finally{loading=false;more.disabled=busy;}
@@ -46,8 +41,7 @@ export function setupFirmwareUpdate({disconnect,report,log}){
     if(!select.value){message('Choose a firmware build.');return;}
     message('Downloading firmware.bin and checking board and SHA-256 checksum...');
     try{
-      const response=await request(`/api/firmware/releases/${select.value}/binary`);
-      const data=await response.arrayBuffer();
+      const data=await loadFirmwareBinary(select.value);
       if(revision!==selection)return;
       if(data.byteLength<8||data.byteLength>512*1024)throw new Error('Invalid firmware binary size.');
       bytes=data;save.disabled=!window.showSaveFilePicker;
