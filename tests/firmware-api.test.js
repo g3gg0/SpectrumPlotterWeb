@@ -35,3 +35,11 @@ test('reports GitHub failures and rejects invalid routes/pages',async()=>{
   await assert.rejects(firmwareRequest(new URL('http://localhost/api/firmware/releases?page=-1'),fixture()),/Invalid release page/);
   assert.equal(await firmwareRequest(new URL('http://localhost/api/firmware/releases/invalid/binary'),fixture()),null);
 });
+test('rejects a truncated binary download',async()=>{
+  const fetcher=fixture();
+  await assert.rejects(firmwareRequest(new URL('http://localhost/api/firmware/releases/1/binary'),url=>url.includes('/assets/3')?Promise.resolve(new Response(binary.subarray(0,8))):fetcher(url)),/Incomplete firmware/);
+});
+test('preserves pagination even when a page has no firmware builds',async()=>{
+  const result=await firmwareRequest(new URL('http://localhost/api/firmware/releases?page=2'),async()=>Response.json(Array.from({length:30},()=>({tag_name:'v1',assets:[]}))));
+  assert.deepEqual(JSON.parse(result.body),{builds:[],nextPage:3});
+});

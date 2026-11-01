@@ -16,7 +16,7 @@ export function halogenTarget(wavelength,options={}){
   const sigmoid=nm=>1/(1+Math.exp(-(nm-o.midpointNm)/o.widthNm));
   return .03+.97*(sigmoid(wavelength)-sigmoid(o.startNm))/(sigmoid(o.endNm)-sigmoid(o.startNm));
 }
-function slopes(x,y){const d=x.slice(1).map((v,i)=>(y[i+1]-y[i])/(v-x[i])),m=[d[0]];for(let i=1;i<x.length-1;i++)m.push(d[i-1]*d[i]<=0?0:2/(1/d[i-1]+1/d[i]));m.push(d.at(-1));return m;}
+function slopes(x,y){const d=x.slice(1).map((v,i)=>(y[i+1]-y[i])/(v-x[i])),m=[0];for(let i=1;i<x.length-1;i++)m.push(d[i-1]*d[i]<=0?0:2/(1/d[i-1]+1/d[i]));m.push(0);return m;}
 const cache=new WeakMap();
 function cubic(x,y,v){
   let m=cache.get(y);if(!m){m=slopes(x,y);cache.set(y,m);}
@@ -25,10 +25,13 @@ function cubic(x,y,v){
   return (2*t*t*t-3*t*t+1)*y[lo]+(t*t*t-2*t*t+t)*h*m[lo]+(-2*t*t*t+3*t*t)*y[hi]+(t*t*t-t*t)*h*m[hi];
 }
 export function amplitudeGain(calibration,wavelength){
-  if(!calibration||wavelength<=calibration.startNm||wavelength>=calibration.endNm)return 1;
-  const taper=smoothstep((wavelength-calibration.startNm)/calibration.fadeNm)*smoothstep((calibration.endNm-wavelength)/calibration.fadeNm);
-  const value=cubic(calibration.wavelengths,calibration.logGains,wavelength),limit=Math.log(calibration.maxGain);
-  return Math.exp(Math.max(-limit,Math.min(limit,value))*taper);
+  if(!calibration||wavelength<=calibration.startNm-calibration.fadeNm||wavelength>=calibration.endNm+calibration.fadeNm)return 1;
+  let value;
+  if(wavelength<calibration.startNm)value=calibration.logGains[0]*smoothstep((wavelength-calibration.startNm+calibration.fadeNm)/calibration.fadeNm);
+  else if(wavelength>calibration.endNm)value=calibration.logGains.at(-1)*smoothstep((calibration.endNm+calibration.fadeNm-wavelength)/calibration.fadeNm);
+  else value=cubic(calibration.wavelengths,calibration.logGains,wavelength);
+  const limit=Math.log(calibration.maxGain);
+  return Math.exp(Math.max(-limit,Math.min(limit,value)));
 }
 export function validateAmplitude(value){
   if(value===null||value===undefined)return null;

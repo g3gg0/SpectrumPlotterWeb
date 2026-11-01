@@ -20,8 +20,9 @@ test('smooth bounded gain returns continuously to unity at coverage boundaries',
   const {calibration:c}=learnAmplitude(lamp(),dark,lambda,{maxGain:4});
   assert.equal(amplitudeGain(c,c.startNm-100),1);assert.equal(amplitudeGain(c,c.endNm+100),1);
   for(let wl=c.startNm;wl<c.endNm;wl+=.1){const gain=amplitudeGain(c,wl);assert.ok(gain>=.25-1e-10&&gain<=4+1e-10);assert.ok(Math.abs(amplitudeGain(c,wl+.001)-gain)<.001);}
-  assert.ok(Math.abs(amplitudeGain(c,c.startNm+.001)-1)<1e-6);
-  assert.ok(Math.abs(amplitudeGain(c,c.endNm-.001)-1)<1e-6);
+  assert.ok(Math.abs(amplitudeGain(c,c.startNm-c.fadeNm+.001)-1)<1e-6);
+  assert.ok(Math.abs(amplitudeGain(c,c.endNm+c.fadeNm-.001)-1)<1e-6);
+  for(const boundary of [c.startNm,c.endNm])assert.ok(Math.abs(amplitudeGain(c,boundary+.001)-amplitudeGain(c,boundary-.001))<1e-6);
 });
 test('narrow outliers do not become narrow gain spikes and dark data is rejected',()=>{
   const normal=lamp(),outlier=[...normal];outlier[1800]=4094;

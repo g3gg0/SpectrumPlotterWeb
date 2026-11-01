@@ -185,7 +185,7 @@ export class CalibrationWizard {
       c.reference=structuredClone(this.halogen.metadata);
       $('halogen-preview').hidden=false;
       this.amplitudePlot.setData({signal:{x:p.x,y:normalize(p.corrected)},captures:[{x:p.x,y:normalize(p.measured),color:'#939ca8'},{x:p.x,y:normalize(p.target),color:'#e7c28b'}],references:[],unit:'Relative Intensität (a.u.)'});this.amplitudePlot.fit();
-      $('halogen-result').textContent=`Angelernt: ${c.startNm.toFixed(1)}–${c.endNm.toFixed(1)} nm · Glättung ${c.options.smoothingNm} nm · Faktor ${Math.min(...p.gains).toFixed(2)}–${Math.max(...p.gains).toFixed(2)}×${c.limitedKnots?' · Verstärkungsgrenze erreicht':''}. An den Rändern weich ausgeblendet; außerhalb dieses Bereichs Faktor 1.`;
+      $('halogen-result').textContent=`Angelernt: ${c.startNm.toFixed(1)}–${c.endNm.toFixed(1)} nm · Glättung ${c.options.smoothingNm} nm · Faktor ${Math.min(...p.gains).toFixed(2)}–${Math.max(...p.gains).toFixed(2)}×${c.limitedKnots?' · Verstärkungsgrenze erreicht':''}. Außerhalb des Lernbereichs ${c.fadeNm.toFixed(0)} nm weicher Übergang zur Originalskala, danach Faktor 1.`;
       $('wizard-apply-all').disabled=false;
     }catch(error){$('halogen-preview').hidden=true;this.error(error.message);}
   }
