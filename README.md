@@ -12,6 +12,10 @@ npm start
 
 Anschließend **http://localhost:8080** in Desktop-Chrome öffnen. Alternativ die Dateien über einen beliebigen statischen HTTPS-Server bereitstellen. Der mitgelieferte Node-Server bindet ausschließlich an `127.0.0.1`. Ein anderer Port lässt sich mit der Umgebungsvariablen `PORT` einstellen.
 
+### GitHub Pages
+
+Der Workflow `.github/workflows/pages.yml` veröffentlicht die statische App bei jedem Push auf `main` oder `master` und kann zusätzlich manuell über **Actions → Publish to GitHub Pages → Run workflow** gestartet werden. Unter **Settings → Pages** muss als Quelle **GitHub Actions** ausgewählt sein. Nach erfolgreichem Lauf ist die App unter `https://<owner>.github.io/<repository>/` erreichbar. Web Serial benötigt HTTPS und Desktop-Chrome; die Verbindung greift auf ein Gerät zu, das am Rechner des jeweiligen Besuchers angeschlossen ist.
+
 Die Web-Serial-Verbindung erfordert einen sicheren Kontext (localhost oder HTTPS), einen vom Benutzer ausgewählten Port und einen verfügbaren seriellen Treiber. Details zur API: [Chrome Web Serial](https://developer.chrome.com/docs/capabilities/serial). Eine Webseite auf einem entfernten Rechner verbindet sich mit dem seriellen Gerät am Rechner des Browsers.
 
 ## Messung
