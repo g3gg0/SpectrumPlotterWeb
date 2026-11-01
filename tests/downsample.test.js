@@ -33,8 +33,8 @@ class Port{
  async open(){}async close(){this.closed=true;}getInfo(){return{};}
 }
 test('transport chooses stride from plot resolution and requires explicit capability',()=>{
- for(const [resolution,stride]of [[3694,1],[1850,2],[1024,4],[512,8],[256,15],[128,29],[64,58]])assert.equal(downsampleStride(parsed,resolution),stride);
- assert.equal(downsampleStride(null,64),1);
+ for(const [resolution,stride]of [[3694,1],[1850,2],[1024,4],[512,8],[256,15]])assert.equal(downsampleStride(parsed,resolution),stride);
+ assert.equal(downsampleStride(null,256),1);
  assert.deepEqual([...downsampleCommand({delayUs:0x1234,triggered:true},15,3)],[69,82,0,15,18,52,254,0,68,49,2,49]);
  assert.throws(()=>downsampleStride(parsed,0));
  assert.throws(()=>parseBuildInfo(new TextEncoder().encode(JSON.stringify({...INFO,pixels:2048}))));
@@ -51,9 +51,9 @@ test('lossless packing and both logarithmic formats decode with bounded quantiza
 });
 test('sparse correction uses original pixel coordinates for wavelength and dark subtraction',()=>{
  const dark=Array.from({length:PIXELS},(_,i)=>i);
- const result=correct(Uint16Array.of(100,120,140),{...DEFAULTS,lambda:[450,.2,0,0],normalize:false,resample:64,amplitude:null},dark,15);
+ const result=correct(Uint16Array.of(100,120,140),{...DEFAULTS,lambda:[450,.2,0,0],normalize:false,resample:256,amplitude:null},dark,15);
  assert.deepEqual(result.x,[450,453,456]);assert.deepEqual(result.y,[100,105,110]);
- const descending=correct(Uint16Array.of(100,120,140),{...DEFAULTS,lambda:[800,-.2,0,0],normalize:false,resample:64},dark,15);
+ const descending=correct(Uint16Array.of(100,120,140),{...DEFAULTS,lambda:[800,-.2,0,0],normalize:false,resample:256},dark,15);
  assert.deepEqual(descending.x,[794,797,800]);assert.deepEqual(descending.y,[110,105,100]);
 });
 test('fragmented sparse/encoded frames retain unseen clipping and calibration always returns native samples',async()=>{
@@ -63,17 +63,17 @@ test('fragmented sparse/encoded frames retain unseen clipping and calibration al
   assert.equal(raw.length,247);assert.equal(metadata.sampleStride,15);assert.equal(metadata.encoding,encoding);assert.equal(metadata.adc.status,'saturated');assert.equal(metadata.adc.clippedSamples,1);assert.equal(metadata.adc.sampleCount,PIXELS);
   // Pixel 1 is not on the transmitted grid. Health still detects its saturation.
   assert.ok(raw.every(v=>v<4095));
-  const batch=[];await device.captureBatch({resample:64,encoding:'log8'},{count:1,onFrame:(r,m)=>batch.push({r,m})});
+  const batch=[];await device.captureBatch({resample:256,encoding:'log8'},{count:1,onFrame:(r,m)=>batch.push({r,m})});
   assert.equal(batch[0].r.length,PIXELS);assert.equal(batch[0].r[1],4095);assert.equal(batch[0].m.sampleStride,1);assert.equal(batch[0].m.encoding,'raw16');
-  await device.start({resample:128,encoding},{single:true});assert.equal(frames[1].raw.length,128);
+  await device.start({resample:512,encoding},{single:true});assert.equal(frames[1].raw.length,462);
   await device.disconnect();
  }
 });
 test('changing plot resolution and encoding takes effect at the next frame boundary',async()=>{
  const port=new Port(),frames=[];let device;
- device=new Spectrometer({onFrame:(raw,metadata)=>{frames.push(metadata);if(frames.length===1){device.setResolution(64);device.setEncoding('log8');}else device.pause();}});
+ device=new Spectrometer({onFrame:(raw,metadata)=>{frames.push(metadata);if(frames.length===1){device.setResolution(256);device.setEncoding('log8');}else device.pause();}});
  await device.connect(port);await device.start({resample:3694,encoding:'packed12'});
- assert.deepEqual(frames.map(m=>[m.sampleStride,m.encoding]),[[1,'packed12'],[58,'log8']]);await device.disconnect();
+ assert.deepEqual(frames.map(m=>[m.sampleStride,m.encoding]),[[1,'packed12'],[15,'log8']]);await device.disconnect();
 });
 test('invalid acknowledgements/headers never publish a frame and disconnect safely',async()=>{
  for(const fault of ['badAck','badHeader']){
@@ -86,15 +86,15 @@ test('invalid acknowledgements/headers never publish a frame and disconnect safe
 test('fast acquisition is explicitly negotiated and disabled for external triggers and calibration',async()=>{
  const fastInfo={...INFO,features:[...INFO.features,'fast-acquisition-v1']};
  const port=new Port({info:fastInfo}),frames=[],device=new Spectrometer({onFrame:(raw,m)=>frames.push(m)});await device.connect(port);
- await device.start({resample:64,encoding:'log8'},{single:true});
+ await device.start({resample:256,encoding:'log8'},{single:true});
  assert.equal(port.writes.filter(c=>c[6]===254).at(-1)[11],0x71);assert.equal(frames[0].fastAcquisition,true);
  assert.ok(Object.values(frames[0].timings).every(v=>Number.isFinite(v)&&v>=0));
  let calibration;
- await device.captureBatch({resample:64,encoding:'log8'},{count:1,onFrame:(raw,m)=>{calibration=m;assert.equal(raw.length,PIXELS);}});
+ await device.captureBatch({resample:256,encoding:'log8'},{count:1,onFrame:(raw,m)=>{calibration=m;assert.equal(raw.length,PIXELS);}});
  assert.equal(port.writes.filter(c=>c[6]===254).at(-1)[11],1);assert.equal(calibration.fastAcquisition,false);
- await device.start({triggered:true,resample:64,encoding:'log8'},{single:true});
+ await device.start({triggered:true,resample:256,encoding:'log8'},{single:true});
  assert.equal(port.writes.filter(c=>c[6]===254).at(-1)[11],0x31);assert.equal(frames[1].fastAcquisition,false);
  await device.disconnect();
- const oldPort=new Port(),oldDevice=new Spectrometer();await oldDevice.connect(oldPort);await oldDevice.start({resample:64,encoding:'log8'},{single:true});
+ const oldPort=new Port(),oldDevice=new Spectrometer();await oldDevice.connect(oldPort);await oldDevice.start({resample:256,encoding:'log8'},{single:true});
  assert.equal(oldPort.writes.filter(c=>c[6]===254).at(-1)[11],0x31);await oldDevice.disconnect();
 });

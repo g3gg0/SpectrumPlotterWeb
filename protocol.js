@@ -16,7 +16,7 @@ export function timing({shUs = 10, icgUs = 7400, delayUs = 0, averages = 1, trig
   if (icgUs < 7388 || icg > 0xffffffff || icg < sh) throw new Error('ICG must be at least 7388 µs, at least SH, and fit in 32 bits');
   if (!Number.isInteger(delayUs) || delayUs < 0 || delayUs > 65535) throw new Error('Trigger delay must be 0–65535 µs');
   if (!Number.isInteger(averages) || averages < 1 || averages > 15) throw new Error('Averaging must be 1–15 integrations');
-  if (!Number.isInteger(resample) || resample < 64 || resample > PIXELS) throw new Error('Invalid plot resolution');
+  if (!Number.isInteger(resample) || resample < 256 || resample > PIXELS) throw new Error('Invalid plot resolution');
   if (!['raw16','packed12','log10','log8'].includes(encoding)) throw new Error('Invalid sample encoding');
   return {encoding, resample, sh, icg, shUs:sh / 2, icgUs:icg / 2, delayUs, averages, triggered:Boolean(triggered)};
 }
@@ -71,7 +71,7 @@ export function triggerCommand(config) {
 }
 
 export function downsampleStride(info, resolution = PIXELS) {
-  if (!Number.isInteger(resolution) || resolution < 64 || resolution > PIXELS) throw new Error('Invalid plot resolution');
+  if (!Number.isInteger(resolution) || resolution < 256 || resolution > PIXELS) throw new Error('Invalid plot resolution');
   return info?.features?.includes('downsample-v1') ? Math.min(info.max_downsample, Math.ceil(PIXELS / resolution)) : 1;
 }
 

@@ -74,7 +74,7 @@ export function parseConfig(object) {
   result.amplitudeEnabled=result.amplitudeEnabled!==false;
   if (!['Multiply','SquaresSum','SquaresSumSat','Cosine'].includes(result.matchMethod)) throw new Error('Unknown matching method');
   if (!['raw16','packed12','log10','log8'].includes(result.encoding)) throw new Error('Invalid sample encoding');
-  result.resample = Math.min(3694, Math.max(64, Math.round(result.resample)));
+  result.resample = Math.min(3694, Math.max(256, Math.round(result.resample)));
   for (const key of ['triggered','normalize','autoMatch','autoCapture','autoClear']) result[key] = Boolean(result[key]);
   let darkFrame = (object.lambda?object.darkFrame??object.DarkFrame:object.DarkFrame??object.darkFrame) || [];
   if (!Array.isArray(darkFrame) || ![0,3694].includes(darkFrame.length) || !darkFrame.every(v => Number.isFinite(v) && v >= 0 && v <= 65535)) throw new Error('Dark frame must contain 3694 finite ADC values');

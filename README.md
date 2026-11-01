@@ -178,7 +178,7 @@ Die Tests prüfen das echte Encoding/Decoding, fragmentierte Web-Serial-Streams 
 
 ### Hohe Bildrate: Plotauflösung und Sample-Encoding
 
-`Plot resolution` steuert bei neuer Firmware automatisch den übertragenen Pixelabstand: `ceil(3694/Auflösung)`, maximal 64. Bei Zielauflösung 256 erhält die App jedes 15. Pixel, insgesamt 247 Samples. Wellenlänge, Dunkelbild und Amplitudenkorrektur beziehen sich weiter auf den ursprünglichen Sensorpixel. Der Hinweis unter den Auswahlfeldern nennt Samplezahl, Stride, tatsächliches Format und Framegröße. Bei alter Firmware bleiben die vollständigen Frames und die Reduktion im Browser erhalten.
+Die kleinste w?hlbare Plotaufl?sung ist 256; ?ltere gespeicherte oder importierte Werte darunter werden auf 256 angehoben. `Plot resolution` steuert bei neuer Firmware automatisch den übertragenen Pixelabstand: `ceil(3694/Auflösung)`, maximal 64. Bei Zielauflösung 256 erhält die App jedes 15. Pixel, insgesamt 247 Samples. Wellenlänge, Dunkelbild und Amplitudenkorrektur beziehen sich weiter auf den ursprünglichen Sensorpixel. Der Hinweis unter den Auswahlfeldern nennt Samplezahl, Stride, tatsächliches Format und Framegröße. Bei alter Firmware bleiben die vollständigen Frames und die Reduktion im Browser erhalten.
 
 `Sample encoding` bietet unabhängig davon:
 
