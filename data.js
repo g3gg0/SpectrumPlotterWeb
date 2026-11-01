@@ -1,9 +1,10 @@
+import {amplitudeGain,validateAmplitude} from './amplitude.js';
 export const COLORS = ['#b99aff','#faad66','#55d8b2','#f280a9','#7dafff','#d2db75'];
 export const DEFAULTS = {
   shUs:10, icgUs:7400, delayUs:0, averages:1, triggered:false,
   normalize:true, units:'counts', resample:1850, matchMethod:'SquaresSumSat',
   autoMatch:true, autoCapture:false, autoClear:false,
-  lambda:[450,0.2,0,0], scale:[1,0,0,0], offset:[0,0,0,0],
+  lambda:[450,0.2,0,0], amplitude:null, amplitudeEnabled:true,
 };
 export const polynomial = (coefficients, x) => coefficients.reduceRight((sum, coefficient) => sum * x + coefficient, 0);
 export const id = () => crypto.randomUUID();
@@ -54,23 +55,24 @@ export function parseConfig(object) {
   if (object.LambdaMap && !object.lambda) {
     const readPoly = (value, fallback) => value ? ['x0','x1','x2','x3'].map(key => value[key] ?? 0) : fallback;
     result.lambda = readPoly(object.LambdaMap, DEFAULTS.lambda);
-    result.scale = readPoly(object.IntensityScaling, DEFAULTS.scale);
-    result.offset = readPoly(object.IntensityOffset, DEFAULTS.offset);
     result.shUs = (object.ShPeriod ?? 20) / 2;
     result.icgUs = (object.IcgPeriod ?? 14800) / 2;
     result.delayUs = object.TriggerDelay ?? 0; result.triggered = Boolean(object.Trigger);
     result.autoMatch = Boolean(object.TriggerAutoMatch); result.autoCapture = Boolean(object.TriggerAutoCapture);
     result.autoClear = Boolean(object.TriggerAutoClear); result.normalize = Boolean(object.TriggerAutoNormalize);
-    result.units = 'relative'; result.resample = object.ResampleResolution ?? 1024;
+    result.units = 'counts'; result.resample = object.ResampleResolution ?? 1024;
     result.matchMethod = object.MatchMethod ?? 'SquaresSumSat';
   } else {
     for (const key of Object.keys(DEFAULTS)) if (Object.hasOwn(object, key)) result[key] = object[key];
   }
-  for (const key of ['lambda','scale','offset']) {
+  for (const key of ['lambda']) {
     if (!Array.isArray(result[key]) || result[key].length !== 4 || !result[key].every(Number.isFinite)) throw new Error(`Invalid ${key} polynomial`);
   }
   for (const key of ['shUs','icgUs','delayUs','averages','resample']) if (!Number.isFinite(result[key])) throw new Error(`Invalid ${key}`);
-  if (!['counts','relative'].includes(result.units) || !['Multiply','SquaresSum','SquaresSumSat','Cosine'].includes(result.matchMethod)) throw new Error('Unknown units or matching method');
+  result.units='counts';
+  result.amplitude=validateAmplitude(result.amplitude);
+  result.amplitudeEnabled=result.amplitudeEnabled!==false;
+  if (!['Multiply','SquaresSum','SquaresSumSat','Cosine'].includes(result.matchMethod)) throw new Error('Unknown matching method');
   result.resample = Math.min(3694, Math.max(64, Math.round(result.resample)));
   for (const key of ['triggered','normalize','autoMatch','autoCapture','autoClear']) result[key] = Boolean(result[key]);
   let darkFrame = (object.lambda?object.darkFrame??object.DarkFrame:object.DarkFrame??object.darkFrame) || [];
@@ -80,9 +82,8 @@ export function parseConfig(object) {
 export function correct(raw, config, dark = []) {
   const pairs = Array.from(raw, (value, pixel) => {
     const wavelength = polynomial(config.lambda, pixel);
-    const relative = Math.max(0, value - (dark[pixel] || 0)) / 65535;
-    let intensity = relative * polynomial(config.scale, wavelength) + polynomial(config.offset, wavelength);
-    if (config.units === 'counts') intensity *= 65535;
+    const counts = Math.max(0, value - (dark[pixel] || 0));
+    const intensity = counts * (config.amplitudeEnabled!==false?amplitudeGain(config.amplitude,wavelength):1);
     if (!Number.isFinite(wavelength) || !Number.isFinite(intensity)) throw new Error('Calibration produced non-finite values');
     return [wavelength, intensity];
   });

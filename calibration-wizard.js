@@ -1,6 +1,8 @@
 import {SpectrumPlot} from './plot.js';
 import {CalibrationAverage,calibrationSignal,calibrationFit} from './calibration.js';
 import {timing} from './protocol.js';
+import {learnAmplitude,AMPLITUDE_DEFAULTS} from './amplitude.js';
+import {normalize} from './data.js';
 
 const $=id=>document.getElementById(id);
 const node=(tag,className='',text='')=>{const el=document.createElement(tag);el.className=className;el.textContent=text;return el;};
@@ -12,6 +14,7 @@ export class CalibrationWizard {
     this.dialog=$('calibration-wizard');
     this.plot=new SpectrumPlot($('wizard-canvas'),{xAxis:'pixel',tooltip:$('wizard-tooltip'),onSelect:point=>this.selectPixel(point.x)});
     this.plot.peaks=false;
+    this.amplitudePlot=new SpectrumPlot($('halogen-canvas'),{tooltip:$('halogen-tooltip')});this.amplitudePlot.peaks=false;
     $('wizard-close').onclick=() => this.cancel();$('wizard-cancel').onclick=()=>this.cancel();
     this.dialog.addEventListener('cancel',event=>{event.preventDefault();this.cancel();});
     $('wizard-connect').onclick=async()=>{
@@ -29,13 +32,21 @@ export class CalibrationWizard {
     $('wizard-accept-reference').onclick=()=>this.acceptReference();
     $('wizard-more').onclick=()=>{this.current=null;this.retakeId=null;$('wizard-reference-name').value=`Referenz ${this.references.length+1}`;this.show('light');};
     $('wizard-degree').onchange=()=>this.renderReview();
-    $('wizard-finish').onclick=()=>this.finish();
+    $('wizard-finish').onclick=()=>this.openAmplitude();
+    $('wizard-halogen-start').onclick=()=>this.capture('halogen');
+    $('wizard-halogen-skip').onclick=()=>this.finish(null);
+    $('wizard-apply-all').onclick=()=>{this.updateAmplitude();if(this.amplitudeResult)this.finish(this.amplitudeResult.calibration);};
+    $('wizard-amplitude-back').onclick=()=>this.show('review');
+    for(const id of ['halogen-model','halogen-lamp','halogen-path','halogen-temperature','halogen-start','halogen-end','halogen-midpoint','halogen-width','halogen-smoothing','halogen-max-gain'])$(id).addEventListener('change',()=>{this.error('');this.updateAmplitude();});
   }
   get active(){return this.dialog.open;}
   async open(){
     if(this.active)return;
     const session=++this.session;this.references=[];this.current=null;this.retakeId=null;this.dark=null;this.result=null;this.settings=null;this.controller=null;this.connecting=false;this.busy=true;this.stage='dark';
-    $('wizard-timing').textContent='Messung vorbereiten …';
+    this.halogen=null;this.amplitudeResult=null;$('halogen-preview').hidden=true;$('wizard-apply-all').disabled=true;
+    const ids={model:'halogen-model',lampType:'halogen-lamp',opticalPath:'halogen-path',temperatureK:'halogen-temperature',startNm:'halogen-start',endNm:'halogen-end',midpointNm:'halogen-midpoint',widthNm:'halogen-width',smoothingNm:'halogen-smoothing',maxGain:'halogen-max-gain'};
+    for(const [key,id]of Object.entries(ids))$(id).value=AMPLITUDE_DEFAULTS[key];
+    $('halogen-temperature-label').hidden=true;$('wizard-timing').textContent='Messung vorbereiten …';
     $('wizard-degree').value='auto';$('wizard-average-count').disabled=false;$('wizard-average-count').value='32';
     $('wizard-dark-summary').textContent='Mit „Fertig“ werden Dunkelbild und Polynom gespeichert.';
     this.dialog.showModal();this.error('');this.render();
@@ -57,12 +68,13 @@ export class CalibrationWizard {
   }
   show(stage){this.stage=stage;this.error('');this.render();if(stage==='review')this.renderReview();}
   render(){
-    for(const stage of ['dark','light','assign','review'])$(`wizard-${stage}-step`).hidden=this.busy||this.stage!==stage;
+    for(const stage of ['dark','light','assign','review','amplitude'])$(`wizard-${stage}-step`).hidden=this.busy||this.stage!==stage;
     $('wizard-progress-section').hidden=!this.busy;
-    for(const item of this.dialog.querySelectorAll('[data-step]'))item.classList.toggle('active',item.dataset.step===this.stage);
+    for(const item of this.dialog.querySelectorAll('[data-step]'))item.classList.toggle('active',item.dataset.step===(['assign','review'].includes(this.stage)?'light':this.stage));
     $('wizard-connect').hidden=this.device.verified; $('wizard-connect').disabled=this.busy||this.connecting;
     $('wizard-dark-start').disabled=!this.device.verified||this.busy;
     $('wizard-light-start').disabled=!this.device.verified||this.busy;
+    $('wizard-halogen-start').disabled=!this.device.verified||this.busy;
     if(!this.device.verified&&!this.busy&&!$('wizard-error').textContent)this.error('Verbinde das Messgerät, bevor du die Aufnahme bestätigst.');
     if(this.busy&&!this.controller){$('wizard-progress-title').textContent='Laufende Messung abschließen …';$('wizard-progress-count').textContent='Bitte kurz warten';$('wizard-progress').removeAttribute('value');$('wizard-progress-percent').textContent='';}
   }
@@ -76,7 +88,7 @@ export class CalibrationWizard {
       const count=kind==='dark'?Number($('wizard-average-count').value):this.frameCount;
       if(![16,32,64,128].includes(count))throw new Error('Ungültige Anzahl der Einzelbilder.');
       this.busy=true;this.controller=new AbortController();this.render();
-      $('wizard-progress-title').textContent=kind==='dark'?'Dunkelbild wird gemittelt …':'Referenzspektrum wird gemittelt …';
+      $('wizard-progress-title').textContent=kind==='dark'?'Dunkelbild wird gemittelt …':kind==='halogen'?'Halogenspektrum wird gemittelt …':'Referenzspektrum wird gemittelt …';
       const average=new CalibrationAverage();let metadata;
       await this.device.captureBatch(this.settings,{count,signal:this.controller.signal,onFrame:(raw,info)=>{average.add(raw);metadata=info;},onProgress:(completed,total)=>{
         if(session!==this.session)return;
@@ -89,6 +101,10 @@ export class CalibrationWizard {
         $('wizard-dark-summary').textContent=`Dunkelbild: ${count} Einzelbilder · SH ${this.settings.shUs} µs · wird mit „Fertig“ gespeichert.`;
         this.stage='light';$('wizard-reference-name').value='Referenz 1';
         this.log(`Kalibrierassistent: Dunkelbild aus ${count} Einzelbildern aufgenommen.`);
+      }else if(kind==='halogen'){
+        this.halogen={average:average.mean(),metadata:{...metadata,hostAverages:count,adc:average.statistics()}};
+        this.stage='amplitude';this.updateAmplitude();
+        this.log(`Kalibrierassistent: Halogenreferenz aus ${count} Einzelbildern aufgenommen.`);
       }else{
         const values=average.mean();const signal=calibrationSignal(values,this.dark);
         this.current={id:this.retakeId||crypto.randomUUID(),name:$('wizard-reference-name').value.trim()||`Referenz ${this.references.length+1}`,average:values,points:[],metadata:{...metadata,hostAverages:count,adc:average.statistics()}};
@@ -154,10 +170,29 @@ export class CalibrationWizard {
     }catch(error){$('wizard-fit-error').textContent=error.message;}
     $('wizard-finish').disabled=!this.result;
   }
-  async finish(){
+  openAmplitude(){this.renderReview();if(!this.result)return;this.show('amplitude');this.updateAmplitude();}
+  amplitudeSettings(){
+    return {model:$('halogen-model').value,lampType:$('halogen-lamp').value,opticalPath:$('halogen-path').value,temperatureK:Number($('halogen-temperature').value),startNm:Number($('halogen-start').value),endNm:Number($('halogen-end').value),midpointNm:Number($('halogen-midpoint').value),widthNm:Number($('halogen-width').value),smoothingNm:Number($('halogen-smoothing').value),maxGain:Number($('halogen-max-gain').value)};
+  }
+  updateAmplitude(){
+    $('halogen-temperature-label').hidden=$('halogen-model').value!=='planck';
+    this.amplitudeResult=null;$('wizard-apply-all').disabled=true;
+    if(!this.halogen){$('halogen-preview').hidden=true;return;}
+    try{
+      this.result=calibrationFit(this.references,$('wizard-degree').value);
+      this.amplitudeResult=learnAmplitude(this.halogen.average,this.dark,this.result.coefficients,this.amplitudeSettings());
+      const {calibration:c,preview:p}=this.amplitudeResult;
+      c.reference=structuredClone(this.halogen.metadata);
+      $('halogen-preview').hidden=false;
+      this.amplitudePlot.setData({signal:{x:p.x,y:normalize(p.corrected)},captures:[{x:p.x,y:normalize(p.measured),color:'#939ca8'},{x:p.x,y:normalize(p.target),color:'#e7c28b'}],references:[],unit:'Relative Intensität (a.u.)'});this.amplitudePlot.fit();
+      $('halogen-result').textContent=`Angelernt: ${c.startNm.toFixed(1)}–${c.endNm.toFixed(1)} nm · Glättung ${c.options.smoothingNm} nm · Faktor ${Math.min(...p.gains).toFixed(2)}–${Math.max(...p.gains).toFixed(2)}×${c.limitedKnots?' · Verstärkungsgrenze erreicht':''}. An den Rändern weich ausgeblendet; außerhalb dieses Bereichs Faktor 1.`;
+      $('wizard-apply-all').disabled=false;
+    }catch(error){$('halogen-preview').hidden=true;this.error(error.message);}
+  }
+  async finish(amplitude=null){
     this.renderReview();if(!this.result)return;
     try{
-      await this.onApply({version:1,createdAt:new Date().toISOString(),coefficients:[...this.result.coefficients],degree:this.result.degree,rms:this.result.rms,settings:{...this.settings},framesPerAverage:this.frameCount,darkFrame:[...this.dark],references:structuredClone(this.references)});
+      await this.onApply({version:2,createdAt:new Date().toISOString(),coefficients:[...this.result.coefficients],degree:this.result.degree,rms:this.result.rms,settings:{...this.settings},framesPerAverage:this.frameCount,darkFrame:[...this.dark],references:structuredClone(this.references),amplitude,halogen:amplitude?structuredClone(this.halogen):null});
       this.session++;this.dialog.close();
     }catch(error){this.error(error.message);}
   }

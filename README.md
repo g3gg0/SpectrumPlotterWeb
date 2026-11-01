@@ -28,6 +28,16 @@ Die Web-Serial-Verbindung erfordert einen sicheren Kontext (localhost oder HTTPS
 
 Acquisition-Einstellungen werden während einer laufenden Messfolge gesperrt. Zum Ändern zuerst pausieren beziehungsweise den Triggerbetrieb trennen. Anzeige, Normalisierung, Kalibrierung und Referenz-Overlays bleiben bedienbar.
 
+### Firmware aktualisieren
+
+Neben **Connect** öffnet der Dropdown-Pfeil **Update firmware**. Einen Commit-Build auswählen, den geprüften Download abwarten und **Save firmware.bin...** anklicken. Im Speichern-unter-Dialog das USB-Laufwerk **NODE_F401RE** auswählen. Es wird ausschließlich die BIN-Datei geschrieben, nicht HEX oder ELF. Vor dem Schreiben schließt die App die serielle Verbindung.
+
+Diese Funktion benötigt den mitgelieferten lokalen Node-Server (`npm start`) für GitHub-Downloads und Desktop-Chrome/Edge mit File System Access auf localhost/HTTPS. Eine rein statische GitHub-Pages-Installation bietet den Firmware-Proxy nicht. Nach Serveränderungen den Node-Server neu starten. GitHub-API-Limits und Downloadfehler werden sichtbar gemeldet.
+
+Der Server bezieht Prereleases von `g3gg0/tcd1304-advanced`, prüft Commit-Zuordnung, F401RE-Board, Binärgröße, SHA-256 aus `manifest.json` und die Startvektoren. Ältere Builds lassen sich nachladen. Das Manifest ist eine Integritätsprüfung, keine kryptografische Signatur.
+
+Während ST-Link programmiert, das Board nicht abziehen. Anschließend das Laufwerk auf `FAIL.TXT` prüfen und erneut verbinden, um die vom Gerät gemeldete Commit-ID zu kontrollieren. Ein erfolgreicher Schreibvorgang allein bestätigt **nicht** den erfolgreichen Flashvorgang.
+
 ### Firmware und Zeitangaben
 
 - Ziel ist die vorhandene `tcd1304-advanced`-Firmware, siehe [Firmware-Protokoll](../tcd1304-advanced/README.md). Die Kennung bestätigt die Firmwarefamilie. Neuere Builds liefern zusätzlich Firmwareversion, UTC-Buildzeit, vollständige Commit-ID, Dirty-Status, Branch, Board/MCU, Compiler und konfigurierte Takte. Die Identifikation ist keine elektrische Prüfung der angeschlossenen Optik.

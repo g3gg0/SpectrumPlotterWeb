@@ -13,10 +13,10 @@ test('C# LIBS and .spect formats import and export without cached normalized arr
 test('interpolation handles both exact endpoints and never extrapolates',()=>{
   assert.deepEqual(interpolate({x:[10,20,30],y:[2,4,6]},[0,10,15,20,30,31]),[0,2,3,4,6,0]);
 });
-test('dark subtraction, C# intensity correction, and zero normalization stay finite',()=>{
-  const config={...DEFAULTS,lambda:[400,.5,0,0],normalize:false,units:'relative',resample:3694};
+test('native count correction and zero normalization stay finite',()=>{
+  const config={...DEFAULTS,lambda:[400,.5,0,0],normalize:false,resample:3694};
   const result=correct([10,20,30],config,[5,25,10]);
-  assert.deepEqual(result.x,[400,400.5,401]);assert.deepEqual(result.y,[5/65535,0,20/65535]);
+  assert.deepEqual(result.x,[400,400.5,401]);assert.deepEqual(result.y,[5,0,20]);
   assert.deepEqual(normalize([0,0,0]),[0,0,0]);
   assert.throws(()=>correct([0,0],{...config,lambda:[0,0,0,0]}),/distinct/);
 });
@@ -38,7 +38,7 @@ test('matching reproduces C# formulas and does not label empty references as mat
 });
 test('config import converts C# ticks and keeps native exports lossless',()=>{
   const imported=parseConfig({LambdaMap:{x0:350,x1:.15},ShPeriod:20,IcgPeriod:14800,TriggerDelay:17,Trigger:true,DarkFrame:[]});
-  assert.equal(imported.config.shUs,10);assert.equal(imported.config.icgUs,7400);assert.equal(imported.config.units,'relative');assert.equal(imported.config.triggered,true);
+  assert.equal(imported.config.shUs,10);assert.equal(imported.config.icgUs,7400);assert.equal(imported.config.units,'counts');assert.equal(imported.config.triggered,true);
   const config={...DEFAULTS,averages:7,units:'counts',normalize:false};
   const native=parseConfig({...config,LambdaMap:{x0:1,x1:2}});
   assert.equal(native.config.averages,7);assert.equal(native.config.units,'counts');assert.deepEqual(native.config.lambda,DEFAULTS.lambda);

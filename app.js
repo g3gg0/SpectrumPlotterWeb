@@ -5,12 +5,14 @@ import {loadWorkspace,saveWorkspace} from './storage.js';
 import {buildSummary,buildDate,deviceInfoRows} from './device-info.js';
 import {adcStatistics,readAdcStatistics,adcPresentation} from './adc.js';
 import {CalibrationWizard} from './calibration-wizard.js';
+import {makeProfile,validateProfile,saveCalibrationProfile,loadCalibrationProfile} from './calibration-profile.js';
+import {setupFirmwareUpdate} from './firmware-update.js';
 
 const $=selector=>document.querySelector(selector);
 const make=(tag,className='',text='')=>{const node=document.createElement(tag);node.className=className;node.textContent=text;return node;};
 const icon=(name)=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');const use=document.createElementNS(svg.namespaceURI,'use');use.setAttribute('href',`#i-${name}`);svg.append(use);return svg;};
 function action(name,title,callback){const button=make('button','icon-button');button.type='button';button.title=title;button.setAttribute('aria-label',title);button.append(icon(name));button.addEventListener('click',callback);return button;}
-const state={config:structuredClone(DEFAULTS),references:[],captures:[],darkFrame:[],calibration:null,raw:null,signal:null,frames:0,status:'disconnected',lastFrame:0,log:[],sortScore:true,ready:false};
+const state={config:structuredClone(DEFAULTS),references:[],captures:[],darkFrame:[],calibration:null,profile:null,raw:null,signal:null,frames:0,status:'disconnected',lastFrame:0,log:[],sortScore:true,ready:false};
 let saveTimer,matchTimer,renderTimer,storeWarning=false,connectionBusy=false,previousAdcStatus=null;
 
 function log(message,level='info'){
@@ -23,7 +25,7 @@ function log(message,level='info'){
 function toast(message,error=false){
   const item=make('div',`toast${error?' error':''}`);item.append(make('span','',message));const dismiss=make('button','','×');dismiss.setAttribute('aria-label','Dismiss notification');dismiss.onclick=()=>item.remove();item.append(dismiss);$('#toast-stack').append(item);setTimeout(()=>item.remove(),error?12000:5000);
 }
-function report(error){if(error.name==='AbortError')return;log(error.message,'error');toast(error.message,true);}
+function report(error){if(error.name==='AbortError')return;log(error.message,'error');toast(error.message,true);if($('#settings-dialog').open){$('#calibration-io-message').textContent=error.message;$('#calibration-io-message').hidden=false;}}
 function save(){
   if(!state.ready)return;
   clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{
@@ -50,7 +52,8 @@ function unit(){
   if(['reference','demo'].includes(signal?.source))return 'Relative intensity (a.u.)';
   const normalized=signal?.metadata?.normalized??state.config.normalize;
   const units=signal?.metadata?.units??state.config.units;
-  return normalized?'Relative intensity (a.u.)':units==='counts'?'Intensity (ADC counts)':'Relative intensity (C#)';
+  const calibrated=signal?.metadata?.amplitudeCalibrated??Boolean(state.config.amplitude&&state.config.amplitudeEnabled);
+  return normalized?'Relative intensity (a.u.)':units==='counts'?(calibrated?'Intensity (corrected counts)':'Intensity (ADC counts)'):'Relative intensity (a.u.)';
 }
 function updatePlot(fit=false){
   plot.setData({signal:state.signal,captures:state.captures.filter(c=>c.visible),references:state.references.filter(r=>r.visible),unit:state.signal?.source==='demo'?'Relative intensity (a.u.)':unit()});
@@ -69,7 +72,7 @@ function renderMetrics(){
     let peak=0;for(let i=1;i<signal.y.length;i++)if(signal.y[i]>signal.y[peak])peak=i;
     $('#metric-peak').textContent=signal.x[peak].toFixed(2);
     $('#metric-intensity').textContent=signal.y[peak]>=100?signal.y[peak].toFixed(0):signal.y[peak].toPrecision(3);
-    $('#metric-unit').textContent=unit().includes('ADC')?'counts':unit().includes('C#')?'rel':'a.u.';
+    $('#metric-unit').textContent=unit().includes('counts')?'counts':'a.u.';
     $('#metric-range').textContent=`${signal.x[0].toFixed(0)}–${signal.x.at(-1).toFixed(0)}`;
   }else for(const name of ['peak','intensity','range'])$(`#metric-${name}`).textContent='—';
   $('#metric-frames').textContent=state.frames.toLocaleString();
@@ -155,7 +158,7 @@ function calculateMatches(announce=false){
 }
 function scheduleMatching(){clearTimeout(matchTimer);matchTimer=setTimeout(()=>calculateMatches(),80);}
 function reprocess(){
-  if(state.raw){try{const data=correct(state.raw,state.config,state.darkFrame);state.signal={...state.signal,...data};}catch(error){report(error);}}
+  if(state.raw){try{const data=correct(state.raw,state.config,state.darkFrame);state.signal={...state.signal,...data,metadata:{...state.signal?.metadata,amplitudeCalibrated:Boolean(state.config.amplitude&&state.config.amplitudeEnabled)}};}catch(error){report(error);}}
   else if(state.signal?.source==='demo'){const demo=demoData();state.signal={...demo.signal,y:state.config.normalize?normalize(demo.signal.y):demo.signal.y};}
   updatePlot();scheduleMatching();save();
 }
@@ -168,7 +171,8 @@ function renderConfig(){
   for(const [selector,active]of [['#mode-live',!state.config.triggered],['#mode-trigger',state.config.triggered]]){$(selector).classList.toggle('active',active);$(selector).setAttribute('aria-pressed',String(active));}
   $('#delay-us').disabled=!state.config.triggered;$('#delay-us').closest('.number-field').classList.toggle('disabled-field',!state.config.triggered);
   $('#mode-hint').textContent=state.config.triggered?'PC13 · falling edge. Rearms after every complete frame.':'Repeated single shots. Settings use actual microseconds.';
-  $('#dark-status').textContent=state.darkFrame.length?'3,694 pixels · correction active':'No correction applied';$('#clear-dark').hidden=!state.darkFrame.length;
+  $('#dark-status').textContent=state.darkFrame.length?'Dunkelbild aktiv · 3.694 Pixel':'Noch kein Dunkelbild';
+  $('#amplitude-sidebar-status').textContent=state.config.amplitude?(state.config.amplitudeEnabled?'Relative Amplitude aktiv':'Amplitude deaktiviert'):'Amplitude nicht angelernt';
 }
 function acquisitionConfig(){
   const config=timing(state.config);
@@ -228,7 +232,7 @@ const device=new Spectrometer({onState:renderConnection,onError:report,onProgres
   const wasDemo=state.signal?.source==='demo';state.raw=raw;state.frames++;
   if(wasDemo)state.references=state.references.filter(r=>!r.demo);
   const adc=adcStatistics(raw);
-  try{state.signal={...correct(raw,state.config,state.darkFrame),name:'Measurement',source:'device',time:metadata.time,metadata:{...metadata,adc}};}catch(error){report(error);return;}
+  try{state.signal={...correct(raw,state.config,state.darkFrame),name:'Measurement',source:'device',time:metadata.time,metadata:{...metadata,adc,amplitudeCalibrated:Boolean(state.config.amplitude&&state.config.amplitudeEnabled)}};}catch(error){report(error);return;}
   if(adc.status!==previousAdcStatus){
     const presentation=adcPresentation(adc);
     if(presentation.error)log(presentation.error,'error');
@@ -237,7 +241,6 @@ const device=new Spectrometer({onState:renderConnection,onError:report,onProgres
   }
   const now=performance.now(),interval=state.lastFrame?now-state.lastFrame:0;state.lastFrame=now;
   $('#metric-rate').textContent=interval?`${(1000/interval).toFixed(1)} frames/s`:'First frame received';
-  $('#dark-button').disabled=false;
   updatePlot(wasDemo||state.frames===1);
   if(metadata.triggered&&state.config.autoCapture)captureCurrent(true);
   if(metadata.triggered&&state.config.autoMatch)scheduleMatching();
@@ -261,21 +264,23 @@ async function connect({autoStart=true}={}){
   }finally{connectionBusy=false;renderConnection(state.status);}
 }
 $('#connect-button').onclick=connect;
+setupFirmwareUpdate({disconnect:async()=>{if(device.port)await device.disconnect();},report,log});
 $('#run-button').onclick=async()=>{
   if(device.task){if(state.config.triggered){await device.disconnect();log('Trigger wait cancelled in browser. Serial port closed.');}else device.pause();}
   else try{device.start(acquisitionConfig());}catch(error){report(error);}
 };
 $('#single-button').onclick=()=>{try{device.start(acquisitionConfig(),{single:true});}catch(error){report(error);}};
 const calibrationWizard=new CalibrationWizard({device,getSettings:()=>state.config,connect:()=>connect({autoStart:false}),log,onApply:async result=>{
-  const config={...state.config,lambda:[...result.coefficients]};
-  const reference=result.references.at(-1),raw=Float64Array.from(reference.average);
-  const signal={...correct(raw,config,result.darkFrame),name:reference.name,source:'calibration',time:reference.metadata.time,metadata:{...reference.metadata}};
+  const config={...state.config,lambda:[...result.coefficients],amplitude:result.amplitude||null,amplitudeEnabled:true,shUs:result.settings.shUs,icgUs:result.settings.icgUs};
+  const reference=result.halogen?{...result.halogen,name:'Halogenreferenz'}:result.references.at(-1),raw=Float64Array.from(reference.average);
+  const signal={...correct(raw,config,result.darkFrame),name:reference.name,source:'calibration',time:reference.metadata.time,metadata:{...reference.metadata,amplitudeCalibrated:Boolean(config.amplitude)}};
+  const profile=saveCalibrationProfile(makeProfile(config,result.darkFrame,result));
   state.config=config;state.darkFrame=[...result.darkFrame];state.calibration=result;
-  state.raw=raw;state.signal=signal;$('#dark-button').disabled=false;
+  state.profile=profile;state.raw=raw;state.signal=signal;
   state.references=state.references.filter(reference=>!reference.demo);renderReferences();
   renderConfig();reprocess();plot.fit();
   log(`Kalibrierassistent abgeschlossen: ${result.references.length} Referenz(en), Grad ${result.degree}, RMS ${result.rms.toPrecision(4)} nm.`);
-  toast('Kalibrierpolynom und gemitteltes Dunkelbild übernommen.');
+  toast('Kalibrierung lokal gespeichert: Wellenlänge, Dunkelbild'+(config.amplitude?' und relative Amplitude.':'.'));
 }});
 const launchWizard=()=>{if(!state.ready){toast('Please wait for the saved workspace to load.');return;}if($('#settings-dialog').open)$('#settings-dialog').close();calibrationWizard.open();};
 $('#calibration-wizard-button').onclick=launchWizard;$('#settings-wizard-button').onclick=launchWizard;
@@ -286,8 +291,6 @@ $('#normalize').onchange=()=>{state.config.normalize=$('#normalize').checked;rep
 $('#resample').onchange=()=>{state.config.resample=Number($('#resample').value);reprocess();};
 for(const [selector,key]of [['#auto-match','autoMatch'],['#auto-capture','autoCapture'],['#auto-clear','autoClear']])$(selector).onchange=()=>{state.config[key]=$(selector).checked;save();};
 $('#match-method').onchange=()=>{state.config.matchMethod=$('#match-method').value;calculateMatches();save();};
-$('#dark-button').onclick=()=>{if(!state.raw)return;state.darkFrame=Array.from(state.raw);renderConfig();reprocess();log('Latest raw frame stored as dark correction.');toast('Dark frame saved and applied to subsequent raw spectra.');};
-$('#clear-dark').onclick=()=>{state.darkFrame=[];renderConfig();reprocess();log('Dark correction cleared.');};
 $('#peaks-button').onclick=()=>{plot.peaks=!plot.peaks;$('#peaks-button').classList.toggle('active',plot.peaks);$('#peaks-button').setAttribute('aria-pressed',String(plot.peaks));plot.schedule();};
 $('#fit-button').onclick=()=>plot.fit();$('#zoom-in').onclick=()=>plot.zoom(.7);$('#zoom-out').onclick=()=>plot.zoom(1.4);
 $('#capture-button').onclick=()=>captureCurrent();$('#empty-capture').onclick=()=>captureCurrent();
@@ -299,7 +302,7 @@ $('#csv-button').onclick=()=>{const signal=displayed();if(signal)download('spect
 $('#png-button').onclick=()=>{const link=make('a');link.download='spectrum.png';link.href=plot.png();link.click();};
 $('#demo-button').onclick=()=>{
   if(device.port){toast('Disconnect the instrument before opening the demo.');return;}
-  const demo=demoData();state.raw=null;state.signal={...demo.signal,y:state.config.normalize?normalize(demo.signal.y):demo.signal.y};state.references=[...state.references.filter(r=>!r.demo),...demo.references];$('#dark-button').disabled=true;
+  const demo=demoData();state.raw=null;state.signal={...demo.signal,y:state.config.normalize?normalize(demo.signal.y):demo.signal.y};state.references=[...state.references.filter(r=>!r.demo),...demo.references];
   renderReferences();updatePlot(true);calculateMatches();log('Synthetic demonstration loaded. These curves are not NIST reference data.');
 };
 
@@ -321,7 +324,7 @@ async function importFiles(files){
       }else if(object.Wavelengths&&object.Intensities){
         if(state.captures.length>=100)throw new Error('Capture limit reached (100)');
         const capture=parseCapture(object,file.name);clearDemo();capture.color=COLORS[state.captures.length%COLORS.length];state.captures.push(capture);imported++;changes=true;log(`Imported capture ${file.name}: ${capture.x.length} samples.`);
-      }else if(object.LambdaMap||object.lambda){applyImportedConfig(object);imported++;}
+      }else if(object.format==='SpectrumPlotterWebCalibration'||object.LambdaMap||object.lambda){applyImportedConfig(object);imported++;}
       else throw new Error('Expected a LIBS library, .spect capture, or SensorConfig');
     }catch(error){failed++;log(`${file.name}: ${error.message}`,'error');toast(`${file.name}: ${error.message}`,true);}
   }
@@ -337,22 +340,33 @@ document.addEventListener('drop',e=>{e.preventDefault();dragDepth=0;$('#drop-ove
 
 function formatCoefficient(value){return value!==0&&Math.abs(value)<1e-6?value.toExponential(7):Number(value.toPrecision(12)).toString();}
 function openSettings(){
+  $('#calibration-io-message').hidden=true;
   const form=$('#settings-form');
-  for(const key of ['lambda','scale','offset'])state.config[key].forEach((value,i)=>form.elements[`${key}${i}`].value=formatCoefficient(value));
-  $('#intensity-units').value=state.config.units;$('#fit-result').textContent='';$('#settings-dialog').showModal();
-  if(state.calibration?.references){$('#fit-points').value=state.calibration.references.flatMap(reference=>reference.points.map(point=>`${point.pixel}, ${point.wavelength}`)).join('\n');$('#fit-degree').value=state.calibration.degree;}
+  state.config.lambda.forEach((value,i)=>form.elements[`lambda${i}`].value=formatCoefficient(value));
+  const amplitude=state.config.amplitude;
+  $('#amplitude-enabled').checked=state.config.amplitudeEnabled;$('#amplitude-enabled').disabled=!amplitude;
+  $('#amplitude-status').textContent=amplitude?`Relative Halogenkorrektur · ${amplitude.startNm.toFixed(1)}–${amplitude.endNm.toFixed(1)} nm · ${amplitude.options.model==='planck'?`Planck-Ziel ${amplitude.options.temperatureK} K`:'weiches S-Ziel'} · Glättung ${amplitude.options.smoothingNm} nm.`:'Noch nicht angelernt. Optional im Kalibrierassistenten eine Halogenreferenz aufnehmen.';
+  $('#calibration-storage-status').textContent=state.profile?`Lokal gespeichert · ${state.profile.createdAt.replace('T',' ').replace('Z',' UTC')}`:'Kalibrierung wird lokal im Browser gespeichert.';
+  $('#fit-result').textContent='';$('#settings-dialog').showModal();
+  const points=state.profile?.wavelength.points||state.calibration?.references?.flatMap(r=>r.points)||[];
+  $('#fit-points').value=points.map(point=>`${point.pixel}, ${point.wavelength}`).join('\n');
+  if(state.profile?.wavelength.degree)$('#fit-degree').value=state.profile.wavelength.degree;
 }
 $('#settings-button').onclick=openSettings;$('#calibration-button').onclick=openSettings;$('#close-settings').onclick=()=>$('#settings-dialog').close();
 $('#settings-dialog').addEventListener('click',e=>{if(e.target===$('#settings-dialog')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close();}});
 $('#settings-form').onsubmit=e=>{
   e.preventDefault();
   try{
-    const next={...state.config,units:$('#intensity-units').value};
-    for(const key of ['lambda','scale','offset'])next[key]=Array.from({length:4},(_,i)=>Number(e.target.elements[`${key}${i}`].value));
+    const next={...state.config,units:'counts',amplitudeEnabled:$('#amplitude-enabled').checked};
+    next.lambda=Array.from({length:4},(_,i)=>Number(e.target.elements[`lambda${i}`].value));
+    const changed=next.lambda.some((value,i)=>Math.abs(value-state.config.lambda[i])>Math.max(1e-15,Math.abs(value)*1e-10));
+    if(changed)next.amplitude=null;
     parseConfig(next);
     // Validate the entire detector mapping before applying it to the live graph.
-    correct(new Uint16Array(PIXELS),next);
-    state.config=next;reprocess();plot.fit();$('#settings-dialog').close();log('Wavelength and intensity calibration applied.');
+    correct(state.raw||new Uint16Array(PIXELS),next,state.darkFrame);
+    const profile=saveCalibrationProfile(makeProfile(next,state.darkFrame,changed?{acquisition:state.profile?.acquisition}:state.calibration||state.profile));
+    state.profile=profile;state.config=next;if(changed)state.calibration=null;
+    renderConfig();reprocess();plot.fit();$('#settings-dialog').close();log(changed?'Wellenlänge gespeichert. Relative Amplitude bei geänderter Wellenlänge bitte neu anlernen.':'Kalibrierung lokal gespeichert.');
   }catch(error){report(error);}
 };
 $('#fit-polynomial').onclick=()=>{
@@ -367,15 +381,18 @@ $('#fit-polynomial').onclick=()=>{
 function applyImportedConfig(object){
   if(calibrationWizard.active)throw new Error('Den Kalibrierassistenten zuerst abschließen oder abbrechen.');
   if(device.running||device.task)throw new Error('Pause or disconnect acquisition before importing instrument settings');
-  const parsed=parseConfig(object);correct(new Uint16Array(PIXELS),parsed.config);
-  state.config=parsed.config;state.darkFrame=parsed.darkFrame;renderConfig();reprocess();log('Configuration imported. SH and ICG are converted from 2 MHz ticks when reading C# settings.');
+  let config,darkFrame,profile;
+  if(object.format==='SpectrumPlotterWebCalibration'){
+    profile=validateProfile(object);config={...state.config,lambda:[...profile.wavelength.coefficients],amplitude:profile.amplitude,amplitudeEnabled:profile.amplitudeEnabled,...(profile.acquisition||{})};darkFrame=profile.darkFrame;
+  }else{const parsed=parseConfig(object);config=parsed.config;darkFrame=parsed.darkFrame;profile=makeProfile(config,darkFrame);}
+  correct(state.raw||new Uint16Array(PIXELS),config,darkFrame);profile=saveCalibrationProfile(profile);
+  state.config=config;state.darkFrame=darkFrame;state.profile=profile;state.calibration=null;renderConfig();reprocess();log('Kalibrierung importiert und lokal gespeichert.');
   if($('#settings-dialog').open){$('#settings-dialog').close();openSettings();}
 }
 $('#import-config').onclick=()=>$('#config-input').click();
 $('#config-input').onchange=async e=>{try{if(e.target.files[0]){if(e.target.files[0].size>8*1024*1024)throw new Error('Config exceeds the 8 MB limit');applyImportedConfig(JSON.parse(await e.target.files[0].text()));toast('Configuration imported.');}}catch(error){report(error);}finally{e.target.value='';}};
 $('#export-config').onclick=()=>{
-  const poly=value=>Object.fromEntries(value.map((v,i)=>[`x${i}`,v]));
-  jsonDownload('SensorConfig.json',{...state.config,darkFrame:Array.from(state.darkFrame),LambdaMap:poly(state.config.lambda),IntensityScaling:poly(state.config.scale),IntensityOffset:poly(state.config.offset),ShPeriod:Math.round(state.config.shUs*2),IcgPeriod:Math.round(state.config.icgUs*2),Trigger:state.config.triggered,TriggerDelay:state.config.delayUs,TriggerAutoCapture:state.config.autoCapture,TriggerAutoClear:state.config.autoClear,TriggerAutoMatch:state.config.autoMatch,TriggerAutoNormalize:state.config.normalize,ResampleResolution:state.config.resample,MatchMethod:state.config.matchMethod,DarkFrame:Array.from(state.darkFrame,Math.round)});
+  try{jsonDownload('spectrum.calibration.json',makeProfile(state.config,state.darkFrame,state.calibration||state.profile));}catch(error){report(error);}
 };
 document.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.metaKey||e.altKey||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||document.querySelector('dialog[open]'))return;
@@ -387,9 +404,11 @@ window.addEventListener('resize',()=>{clearTimeout(renderTimer);renderTimer=setT
 window.addEventListener('pagehide',()=>{if(device.port)device.disconnect();});
 
 async function initialize(){
+  let restoredWorkspace=false;
   try{
     const saved=await loadWorkspace();
     if(saved){
+      restoredWorkspace=true;
       state.config=parseConfig(saved.config||{}).config;
       state.references=(saved.references||[]).filter(r=>!r.demo);state.captures=saved.captures||[];
       state.darkFrame=parseConfig({darkFrame:saved.darkFrame||[]}).darkFrame;
@@ -397,6 +416,11 @@ async function initialize(){
       log(`Restored ${state.references.length} reference species and ${state.captures.length} captures from this browser.`);
     }
   }catch(error){log(`Could not restore local workspace: ${error.message}`,'error');}
+  try{
+    const profile=loadCalibrationProfile();
+    if(profile){state.profile=profile;state.config={...state.config,lambda:profile.wavelength.coefficients,amplitude:profile.amplitude,amplitudeEnabled:profile.amplitudeEnabled,...(restoredWorkspace?{}:profile.acquisition||{})};state.darkFrame=profile.darkFrame;log('Kalibrierung aus Local Storage geladen.');}
+    else if(state.darkFrame.length||state.calibration)state.profile=saveCalibrationProfile(makeProfile(state.config,state.darkFrame,state.calibration));
+  }catch(error){log(`Kalibrierung konnte nicht aus Local Storage geladen werden: ${error.message}`,'error');toast('Lokale Kalibrierung konnte nicht geladen werden. Bitte Kalibrierdatei prüfen oder importieren.',true);}
   state.ready=true;
   if(!state.references.length&&!state.captures.length){const demo=demoData();state.signal={...demo.signal,y:state.config.normalize?normalize(demo.signal.y):demo.signal.y};state.references=demo.references;log('Synthetic demo loaded. Connect an instrument or import your local spectra.');}
   renderConfig();renderReferences();renderCaptures();renderConnection('disconnected');updatePlot(true);calculateMatches();
