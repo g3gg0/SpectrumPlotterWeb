@@ -5,7 +5,7 @@ const maxFirmware=512*1024;
 async function request(relative){
   let response;
   try{response=await fetch(new URL(relative,root),{cache:'no-store',signal:AbortSignal.timeout(45000)});}
-  catch(error){throw new Error(`Cannot reach the GitHub Pages firmware archive: ${error.message}`);}
+  catch(error){throw new Error(`Cannot reach the GitHub Pages firmware archive: ${error.message}. Enable GitHub Pages in the firmware repository and wait for the publishing workflow.`);}
   if(!response.ok)throw new Error(`Firmware archive unavailable (${response.status}). Enable GitHub Pages in the firmware repository and wait for the publishing workflow.`);
   return response;
 }

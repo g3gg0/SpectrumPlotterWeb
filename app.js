@@ -1,4 +1,4 @@
-import {Spectrometer,timing,BAUD_RATE,PIXELS} from './protocol.js';
+import {Spectrometer,timing,BAUD_RATE,PIXELS,downsampleStride,SAMPLE_ENCODINGS,encodingBits} from './protocol.js';
 import {DEFAULTS,COLORS,id,maximum,normalize,parseLibrary,parseCapture,exportCapture,parseConfig,correct,interpolate,match,findPeaks,fitPolynomial,demoData} from './data.js';
 import {SpectrumPlot,sparkline} from './plot.js';
 import {loadWorkspace,saveWorkspace} from './storage.js';
@@ -89,7 +89,7 @@ function renderAdc(signal){
   if(percent===null||percent===undefined)meter.removeAttribute('aria-valuenow');else meter.setAttribute('aria-valuenow',String(percent));
   meter.setAttribute('aria-valuetext',`${presentation.usage}; ${presentation.counts}; ${presentation.label}`);
   const averaged=Boolean(stats&&signal?.metadata?.averages>1);
-  indicator.title=stats?`Peak of transmitted ADC samples${signal?.metadata?.hostAverages?` across ${signal.metadata.hostAverages} individual frames before software averaging`:''} before dark subtraction, calibration, resampling and normalization. Low: <5% FS; near limit: ≥95% FS; saturated: any sample =4095. Minimum: ${stats.minimum}; clipped: ${stats.clippedSamples}/${stats.sampleCount}.${averaged?' Hardware averaging can hide clipping of individual integrations.':''}`:'Exposure cannot be inferred from normalized spectra or references without recorded ADC statistics.';
+  indicator.title=stats?`Peak of transmitted ADC samples${signal?.metadata?.hostAverages?` across ${signal.metadata.hostAverages} individual frames before software averaging`:''} before dark subtraction, calibration, resampling and normalization. Full-frame ADC health includes pixels omitted during transport. Low: <5% FS; near limit: ≥95% FS; saturated: any sample =4095. Minimum: ${stats.minimum}; clipped: ${stats.clippedSamples}/${stats.sampleCount}.${averaged?' Hardware averaging can hide clipping of individual integrations.':''}`:'Exposure cannot be inferred from normalized spectra or references without recorded ADC statistics.';
   $('#adc-averaging-note').hidden=!averaged;
   const isError=Boolean(presentation.error);$('#intensity-card').classList.toggle('adc-fault',isError);
   $('.plot-panel').classList.toggle('adc-fault',isError);
@@ -158,15 +158,16 @@ function calculateMatches(announce=false){
 }
 function scheduleMatching(){clearTimeout(matchTimer);matchTimer=setTimeout(()=>calculateMatches(),80);}
 function reprocess(){
-  if(state.raw){try{const data=correct(state.raw,state.config,state.darkFrame);state.signal={...state.signal,...data,metadata:{...state.signal?.metadata,amplitudeCalibrated:Boolean(state.config.amplitude&&state.config.amplitudeEnabled)}};}catch(error){report(error);}}
+  if(state.raw){try{const data=correct(state.raw,state.config,state.darkFrame,state.signal?.metadata?.sampleStride||1);state.signal={...state.signal,...data,metadata:{...state.signal?.metadata,amplitudeCalibrated:Boolean(state.config.amplitude&&state.config.amplitudeEnabled)}};}catch(error){report(error);}}
   else if(state.signal?.source==='demo'){const demo=demoData();state.signal={...demo.signal,y:state.config.normalize?normalize(demo.signal.y):demo.signal.y};}
   updatePlot();scheduleMatching();save();
 }
 function renderConfig(){
+  device.setResolution(state.config.resample);device.setEncoding(state.config.encoding);renderTransfer();
   if(!Array.from($('#resample').options).some(option=>Number(option.value)===state.config.resample)){
     const option=make('option','',`Custom · ${state.config.resample.toLocaleString()} samples`);option.value=state.config.resample;$('#resample').append(option);
   }
-  for(const [selector,key] of [['#sh-us','shUs'],['#icg-us','icgUs'],['#delay-us','delayUs'],['#averages','averages'],['#resample','resample'],['#match-method','matchMethod']])$(selector).value=state.config[key];
+  for(const [selector,key] of [['#sh-us','shUs'],['#icg-us','icgUs'],['#delay-us','delayUs'],['#averages','averages'],['#resample','resample'],['#sample-encoding','encoding'],['#match-method','matchMethod']])$(selector).value=state.config[key];
   for(const [selector,key] of [['#normalize','normalize'],['#auto-match','autoMatch'],['#auto-capture','autoCapture'],['#auto-clear','autoClear']])$(selector).checked=state.config[key];
   for(const [selector,active]of [['#mode-live',!state.config.triggered],['#mode-trigger',state.config.triggered]]){$(selector).classList.toggle('active',active);$(selector).setAttribute('aria-pressed',String(active));}
   $('#delay-us').disabled=!state.config.triggered;$('#delay-us').closest('.number-field').classList.toggle('disabled-field',!state.config.triggered);
@@ -181,6 +182,7 @@ function acquisitionConfig(){
 }
 function renderConnection(status,details){
   state.status=status;
+  renderTransfer();
   const connected=device.verified;
   const busy=['acquiring','armed','receiving','finishing'].includes(status);
   $('#acquisition-fields').disabled=busy||status==='connecting';
@@ -211,7 +213,12 @@ function renderConnection(status,details){
     if(state.frames)$('#metric-rate').textContent='Device disconnected';
   }
 }
+function renderTransfer(){
+  const n=downsampleStride(device.buildInfo,state.config.resample),count=Math.ceil(PIXELS/n),format=device.buildInfo?.features.includes('sample-encoding-v1')?SAMPLE_ENCODINGS.indexOf(state.config.encoding):0;
+  $('#transfer-status').textContent=!device.verified?'Automatic after connect':device.buildInfo?.features.includes('downsample-v1')?`${count.toLocaleString()} wire samples · every ${n}th pixel · ${Math.ceil(count*encodingBits(format)/8)+(n>1||format?16:0)} bytes/frame · ${SAMPLE_ENCODINGS[format]}`:'Legacy firmware · full frames, plot reduced in browser';
+}
 function renderDeviceInfo(details){
+  renderTransfer();
   const info=device.buildInfo,summary=$('#device-build-summary');summary.replaceChildren();summary.hidden=false;
   if(info){
     const build=make('div','firmware-summary-row');build.append(make('span','','Built'),make('time','mono',buildDate(info)));summary.append(build);
@@ -231,8 +238,9 @@ const device=new Spectrometer({onState:renderConnection,onError:report,onProgres
 },onFrame:(raw,metadata)=>{
   const wasDemo=state.signal?.source==='demo';state.raw=raw;state.frames++;
   if(wasDemo)state.references=state.references.filter(r=>!r.demo);
-  const adc=adcStatistics(raw);
-  try{state.signal={...correct(raw,state.config,state.darkFrame),name:'Measurement',source:'device',time:metadata.time,metadata:{...metadata,adc,amplitudeCalibrated:Boolean(state.config.amplitude&&state.config.amplitudeEnabled)}};}catch(error){report(error);return;}
+  renderTransfer();
+  const adc=readAdcStatistics(metadata.adc)||adcStatistics(raw);
+  try{state.signal={...correct(raw,state.config,state.darkFrame,metadata.sampleStride||1),name:'Measurement',source:'device',time:metadata.time,metadata:{...metadata,adc,amplitudeCalibrated:Boolean(state.config.amplitude&&state.config.amplitudeEnabled)}};}catch(error){report(error);return;}
   if(adc.status!==previousAdcStatus){
     const presentation=adcPresentation(adc);
     if(presentation.error)log(presentation.error,'error');
@@ -244,7 +252,7 @@ const device=new Spectrometer({onState:renderConnection,onError:report,onProgres
   updatePlot(wasDemo||state.frames===1);
   if(metadata.triggered&&state.config.autoCapture)captureCurrent(true);
   if(metadata.triggered&&state.config.autoMatch)scheduleMatching();
-  if(state.frames===1||metadata.triggered)log(`Frame ${state.frames}: ${PIXELS} samples, ${metadata.averages} integration(s)${metadata.triggered?', external trigger':''}.`);
+  if(state.frames===1||metadata.triggered)log(`Frame ${state.frames}: ${raw.length} samples (stride ${metadata.sampleStride||1}), ${metadata.averages} integration(s)${metadata.triggered?', external trigger':''}.`);
   if(wasDemo)renderReferences();
 }});
 
@@ -288,7 +296,8 @@ for(const [selector,key]of [['#sh-us','shUs'],['#icg-us','icgUs'],['#delay-us','
 $('#mode-live').onclick=()=>{state.config.triggered=false;renderConfig();save();};
 $('#mode-trigger').onclick=()=>{state.config.triggered=true;renderConfig();save();};
 $('#normalize').onchange=()=>{state.config.normalize=$('#normalize').checked;reprocess();};
-$('#resample').onchange=()=>{state.config.resample=Number($('#resample').value);reprocess();};
+$('#sample-encoding').onchange=()=>{state.config.encoding=$('#sample-encoding').value;device.setEncoding(state.config.encoding);renderTransfer();save();};
+$('#resample').onchange=()=>{state.config.resample=Number($('#resample').value);device.setResolution(state.config.resample);renderTransfer();reprocess();};
 for(const [selector,key]of [['#auto-match','autoMatch'],['#auto-capture','autoCapture'],['#auto-clear','autoClear']])$(selector).onchange=()=>{state.config[key]=$(selector).checked;save();};
 $('#match-method').onchange=()=>{state.config.matchMethod=$('#match-method').value;calculateMatches();save();};
 $('#peaks-button').onclick=()=>{plot.peaks=!plot.peaks;$('#peaks-button').classList.toggle('active',plot.peaks);$('#peaks-button').setAttribute('aria-pressed',String(plot.peaks));plot.schedule();};
@@ -363,7 +372,7 @@ $('#settings-form').onsubmit=e=>{
     if(changed)next.amplitude=null;
     parseConfig(next);
     // Validate the entire detector mapping before applying it to the live graph.
-    correct(state.raw||new Uint16Array(PIXELS),next,state.darkFrame);
+    correct(state.raw||new Uint16Array(PIXELS),next,state.darkFrame,state.signal?.metadata?.sampleStride||1);
     const profile=saveCalibrationProfile(makeProfile(next,state.darkFrame,changed?{acquisition:state.profile?.acquisition}:state.calibration||state.profile));
     state.profile=profile;state.config=next;if(changed)state.calibration=null;
     renderConfig();reprocess();plot.fit();$('#settings-dialog').close();log(changed?'Wellenlänge gespeichert. Relative Amplitude bei geänderter Wellenlänge bitte neu anlernen.':'Kalibrierung lokal gespeichert.');
@@ -385,7 +394,7 @@ function applyImportedConfig(object){
   if(object.format==='SpectrumPlotterWebCalibration'){
     profile=validateProfile(object);config={...state.config,lambda:[...profile.wavelength.coefficients],amplitude:profile.amplitude,amplitudeEnabled:profile.amplitudeEnabled,...(profile.acquisition||{})};darkFrame=profile.darkFrame;
   }else{const parsed=parseConfig(object);config=parsed.config;darkFrame=parsed.darkFrame;profile=makeProfile(config,darkFrame);}
-  correct(state.raw||new Uint16Array(PIXELS),config,darkFrame);profile=saveCalibrationProfile(profile);
+  correct(state.raw||new Uint16Array(PIXELS),config,darkFrame,state.signal?.metadata?.sampleStride||1);profile=saveCalibrationProfile(profile);
   state.config=config;state.darkFrame=darkFrame;state.profile=profile;state.calibration=null;renderConfig();reprocess();log('Kalibrierung importiert und lokal gespeichert.');
   if($('#settings-dialog').open){$('#settings-dialog').close();openSettings();}
 }

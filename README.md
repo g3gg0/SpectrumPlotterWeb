@@ -47,7 +47,7 @@ Während ST-Link programmiert, das Board nicht abziehen. Anschließend das Laufw
 - Die eingestellte Triggerverzögerung wird übertragen; die tatsächliche elektrische Zeitlage und der analoge Messzeitpunkt sind Eigenschaften der Firmware/Hardware und wurden durch die Web-App nicht vermessen.
 - Die App benutzt ausschließlich Firmware-One-Shots und startet die nächste Aufnahme nach Empfang des vollständigen Frames. Dadurch überlappen sich Empfang und erneute Anforderung nicht.
 
-`protocol.js` sammelt beliebige Stream-Fragmente zu genau **7388 Byte / 3694 Little-Endian-Samples**. Es gibt keine Spektralheader, CRC oder Sequenznummern. Ein unvollständiger Frame, Empfangsfehler oder Timeout beendet die Verbindung; unvollständige Daten werden nicht geplottet. Im Triggerbetrieb gibt es vor dem ersten Byte keinen Timeout. Sobald Daten eintreffen, gilt ein Empfangslimit von zwei Sekunden ohne Fortschritt. Ein neuer Verbindungsaufbau verwirft vor der Kennungsabfrage alte empfangene Daten.
+`protocol.js` sammelt beliebige Stream-Fragmente zu vollständigen Frames. Legacy/Vollframe-raw16 bleibt **7388 Byte / 3694 Little-Endian-Samples**. Bei ausgehandeltem Downsampling oder gepackten Formaten validiert die App zusätzlich einen 16-Byte-Header mit Stride, Encoding, Samplezahl und ADC-Statistik des vollständigen Frames. CRC und Sequenznummern gibt es weiterhin nicht. Ein unvollständiger Frame, Empfangsfehler oder Timeout beendet die Verbindung; unvollständige Daten werden nicht geplottet. Im Triggerbetrieb gibt es vor dem ersten Byte keinen Timeout. Sobald Daten eintreffen, gilt ein Empfangslimit von zwei Sekunden ohne Fortschritt. Ein neuer Verbindungsaufbau verwirft vor der Kennungsabfrage alte empfangene Daten.
 
 ### Anzeige der Firmware-Buildinformationen
 
@@ -175,3 +175,20 @@ Die Tests prüfen das echte Encoding/Decoding, fragmentierte Web-Serial-Streams 
 | `plot.js` | Canvas-Spektralplot, Cursor, Zoom, Peak-Markierungen und Sparklines |
 | `storage.js` | Lokale IndexedDB-Speicherung |
 | `server.mjs` | Optionaler statischer Entwicklungsserver |
+
+### Hohe Bildrate: Plotauflösung und Sample-Encoding
+
+`Plot resolution` steuert bei neuer Firmware automatisch den übertragenen Pixelabstand: `ceil(3694/Auflösung)`, maximal 64. Bei Zielauflösung 256 erhält die App jedes 15. Pixel, insgesamt 247 Samples. Wellenlänge, Dunkelbild und Amplitudenkorrektur beziehen sich weiter auf den ursprünglichen Sensorpixel. Der Hinweis unter den Auswahlfeldern nennt Samplezahl, Stride, tatsächliches Format und Framegröße. Bei alter Firmware bleiben die vollständigen Frames und die Reduktion im Browser erhalten.
+
+`Sample encoding` bietet unabhängig davon:
+
+- **12-bit lossless** (Standard): verlustfreies Packen der tatsächlichen 12 ADC-Bits.
+- **10-bit logarithmic**: weniger UART-Daten, ungefähr 0,41 % halbe Quantisierungsstufe bezogen auf ADC+1.
+- **8-bit logarithmic**: halbe Sample-Nutzlast gegenüber raw16, ungefähr 1,65 % halbe Stufe; helle Werte werden gröber abgestuft.
+- **16-bit container**: bisherige Originaldarstellung.
+
+Die Browseranzeige dekodiert Logwerte wieder in ADC-Counts; sie ist keine logarithmische Y-Achse. Das Format steht in `Metadata.encoding`, der Pixelabstand in `Metadata.sampleStride`, die Transfergröße in `Metadata.wireBytes` und die Original-ADC-Auswertung in `Metadata.adc`. Sättigung/Fehler werden aus allen 3694 Originalpixeln **vor** Reduktion und Quantisierung ermittelt, auch wenn ein betroffenes Pixel nicht übertragen wird. Der Kalibrierassistent verwendet für Dunkelbild und Referenzen immer vollständige raw16-Frames.
+
+Auflösung und Encoding können während laufender Aufnahme geändert werden; sie gelten ab dem nächsten Frame. Die Konfiguration bleibt lokal gespeichert und wird mit den Settings exportiert. Capability-Erkennung verwendet die Build-Info-Features, niemals nur die Versionsnummer. Das vollständige Byteformat samt Beispielen steht im [Firmware-Protokoll](../tcd1304-advanced/README.md#downsampling-and-sample-encoding-firmware-120).
+
+Beispiel 256 Zielpunkte + log8: 263 statt 7388 Byte/Frame, berechnete UART-Zeit 5,26 statt 147,76 ms. Das ist keine gemessene Gesamtbildrate: CCD-Auslesen, Flush und Integration bleiben unverändert. Jedes-n-te-Pixel kann schmale Emissionslinien auslassen; für präzise Spektroskopie volle Auflösung und verlustfreie Formate wählen. Die Log-Quantisierung erfolgt vor Dunkelbildabzug und kann schwache Differenzsignale auf hohem Untergrund stärker beeinträchtigen.

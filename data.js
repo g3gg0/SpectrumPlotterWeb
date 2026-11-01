@@ -2,7 +2,7 @@ import {amplitudeGain,validateAmplitude} from './amplitude.js';
 export const COLORS = ['#b99aff','#faad66','#55d8b2','#f280a9','#7dafff','#d2db75'];
 export const DEFAULTS = {
   shUs:10, icgUs:7400, delayUs:0, averages:1, triggered:false,
-  normalize:true, units:'counts', resample:1850, matchMethod:'SquaresSumSat',
+  normalize:true, units:'counts', resample:1850, encoding:'packed12', matchMethod:'SquaresSumSat',
   autoMatch:true, autoCapture:false, autoClear:false,
   lambda:[450,0.2,0,0], amplitude:null, amplitudeEnabled:true,
 };
@@ -73,14 +73,17 @@ export function parseConfig(object) {
   result.amplitude=validateAmplitude(result.amplitude);
   result.amplitudeEnabled=result.amplitudeEnabled!==false;
   if (!['Multiply','SquaresSum','SquaresSumSat','Cosine'].includes(result.matchMethod)) throw new Error('Unknown matching method');
+  if (!['raw16','packed12','log10','log8'].includes(result.encoding)) throw new Error('Invalid sample encoding');
   result.resample = Math.min(3694, Math.max(64, Math.round(result.resample)));
   for (const key of ['triggered','normalize','autoMatch','autoCapture','autoClear']) result[key] = Boolean(result[key]);
   let darkFrame = (object.lambda?object.darkFrame??object.DarkFrame:object.DarkFrame??object.darkFrame) || [];
   if (!Array.isArray(darkFrame) || ![0,3694].includes(darkFrame.length) || !darkFrame.every(v => Number.isFinite(v) && v >= 0 && v <= 65535)) throw new Error('Dark frame must contain 3694 finite ADC values');
   return {config:result, darkFrame};
 }
-export function correct(raw, config, dark = []) {
+export function correct(raw, config, dark = [], stride = 1) {
+  if (!Number.isInteger(stride) || stride < 1 || stride > 64) throw new Error('Invalid sample stride');
   const pairs = Array.from(raw, (value, pixel) => {
+    pixel *= stride;
     const wavelength = polynomial(config.lambda, pixel);
     const counts = Math.max(0, value - (dark[pixel] || 0));
     const intensity = counts * (config.amplitudeEnabled!==false?amplitudeGain(config.amplitude,wavelength):1);
