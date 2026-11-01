@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111419"><meta name="description" content="A local spectral analysis workspace for TCD1304, Web Serial, and LIBS reference libraries.">
+  <title>SpectrumPlotter · Spectral analysis</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg class="icon-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-connect" viewBox="0 0 24 24"><path d="M8 3v5m8-5v5M6 8h12v3a6 6 0 0 1-6 6v4m-6-10h12"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+    <symbol id="i-fit" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5M8 12h8m-4-4v8"/></symbol>
+    <symbol id="i-capture" viewBox="0 0 24 24"><path d="M4 7h4l2-3h4l2 3h4v13H4z"/><circle cx="12" cy="13" r="4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 4v16m8-16v16"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m2 17 4-5 3 3 4-12 3 14 3-5h3"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11Z"/></symbol>
+  </defs></svg>
+  <header class="app-header">
+    <a class="brand" href="./" aria-label="SpectrumPlotter home"><span class="brand-mark"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span>Spectrum<span class="brand-light">Plotter</span><small>WEB WORKSPACE <b>01</b></small></span></a>
+    <div class="header-center"><span class="small-dot"></span> LOCAL INSTRUMENTATION <span class="header-divider">/</span> LIBS ANALYSIS</div>
+    <div class="header-actions"><button id="demo-button" class="button subtle">Explore demo</button><button id="connection-badge" class="badge" type="button" aria-haspopup="dialog" title="Connect an instrument to view firmware information" disabled><span class="status-dot"></span>Not connected</button><button id="connect-button" class="button primary"><svg><use href="#i-connect"/></svg>Connect</button></div>
+  </header>
+  <div id="support-banner" class="support-banner" hidden></div>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="section-eyebrow"><span>INSTRUMENT</span><span class="mono muted">01</span></div>
+      <section class="instrument-card"><div class="instrument-icon"><svg><use href="#i-spark"/></svg></div><div><strong id="device-name">TCD1304</strong><span id="device-detail">Connect to verify device</span></div><span id="device-dot" class="status-dot"></span></section>
+      <div id="device-build-summary" class="firmware-summary" hidden></div>
+      <div class="sidebar-heading"><h2>Acquisition</h2><span class="small-label">2 MHz clock</span></div>
+      <fieldset id="acquisition-fields">
+        <div class="segmented" aria-label="Acquisition mode"><button id="mode-live" class="active" aria-pressed="true">Live</button><button id="mode-trigger" aria-pressed="false"><span class="trigger-symbol">ϟ</span> Triggered</button></div>
+        <label class="field-label" for="sh-us">Integration · SH</label><div class="number-field"><input id="sh-us" type="number" min="10" max="2147483647" step="0.5" value="10"><span>µs</span></div>
+        <label class="field-label" for="icg-us">Readout period · ICG</label><div class="number-field"><input id="icg-us" type="number" min="7388" max="2147483647" step="0.5" value="7400"><span>µs</span></div>
+        <div class="two-fields"><div><label class="field-label" for="averages">Averaging</label><div class="number-field"><input id="averages" type="number" min="1" max="15" step="1" value="1"><span>×</span></div></div><div><label class="field-label" for="delay-us">Trigger delay</label><div class="number-field"><input id="delay-us" type="number" min="0" max="65535" step="1" value="0"><span>µs</span></div></div></div>
+        <p id="mode-hint" class="field-help">Repeated single shots. Settings use actual microseconds.</p>
+      </fieldset>
+      <div class="acquisition-buttons"><button id="run-button" class="button primary" disabled><svg><use href="#i-play"/></svg>Start acquisition</button><button id="single-button" class="button icon-button" title="Acquire one spectrum" aria-label="Acquire one spectrum" disabled><svg><use href="#i-capture"/></svg></button></div>
+      <div id="acquisition-state" class="acquisition-state"><span class="status-dot"></span><span>Ready when you are</span></div>
+      <div class="sidebar-rule"></div>
+      <div class="sidebar-heading"><h2>Signal processing</h2><button id="settings-button" class="icon-button" title="Calibration and processing" aria-label="Calibration and processing"><svg><use href="#i-settings"/></svg></button></div>
+      <label class="toggle-row"><span>Normalize intensity</span><input id="normalize" type="checkbox" role="switch" checked></label>
+      <label class="field-label" for="resample">Plot resolution</label><select id="resample"><option value="3694">Full · 3,694 samples</option><option value="1850" selected>High · 1,850 samples</option><option value="1024">Balanced · 1,024 samples</option><option value="512">Smooth · 512 samples</option><option value="256">Smooth · 256 samples</option></select>
+      <div class="dark-frame-row"><div><span>Dark frame</span><small id="dark-status">No correction applied</small></div><button id="dark-button" class="icon-button bordered" title="Use latest raw frame as dark frame" aria-label="Set dark frame" disabled><svg><use href="#i-moon"/></svg></button><button id="clear-dark" class="icon-button" title="Clear dark frame" aria-label="Clear dark frame" hidden>×</button></div>
+      <button id="calibration-button" class="button full-width"><svg><use href="#i-settings"/></svg>Wavelength calibration<span class="arrow">↗</span></button>
+      <button id="calibration-wizard-button" class="button full-width wizard-launch"><svg><use href="#i-spark"/></svg>Kalibrierassistent<span class="arrow">↗</span></button>
+      <details class="trigger-automation"><summary>After each triggered frame</summary><label class="check-row"><input id="auto-match" type="checkbox" checked>Match references</label><label class="check-row"><input id="auto-capture" type="checkbox">Save capture</label><label class="check-row"><input id="auto-clear" type="checkbox">Replace previous auto captures</label></details>
+      <div class="sidebar-bottom"><span class="privacy-dot"></span><div>Runs entirely in your browser<small>Your spectra stay on this device.</small></div></div>
+    </aside>
+    <main>
+      <div class="workspace-heading"><div><div class="section-eyebrow">SPECTRAL ANALYSIS</div><h1>Spectral workspace<span>.</span></h1><p>Acquire, compare, and explore your spectrum.</p></div><button id="import-button" class="button"><svg><use href="#i-upload"/></svg>Import files</button></div>
+      <div class="metrics">
+        <div class="metric"><span>PEAK WAVELENGTH</span><div><strong id="metric-peak">—</strong><small>nm</small><svg class="metric-spark"><use href="#i-spark"/></svg></div></div>
+        <div id="intensity-card" class="metric"><span>PEAK INTENSITY</span><div><strong id="metric-intensity">—</strong><small id="metric-unit">a.u.</small></div><section id="adc-indicator" class="adc-indicator" data-status="unavailable" aria-label="ADC full-scale utilization"><div class="adc-values"><strong id="adc-utilization">ADC —</strong><span id="adc-counts">Raw ADC data unavailable</span></div><div id="adc-meter" class="adc-meter" role="meter" aria-label="ADC peak relative to full scale" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Raw ADC data unavailable"><span id="adc-meter-fill"></span></div><p id="adc-level">No exposure assessment</p></section></div>
+        <div class="metric"><span>SPECTRAL RANGE</span><div><strong id="metric-range">—</strong><small>nm</small></div></div>
+        <div class="metric"><span>ACQUIRED FRAMES</span><div><strong id="metric-frames">0</strong><small id="metric-rate">Awaiting device</small></div></div>
+      </div>
+      <div id="adc-error" class="adc-error" role="alert" hidden><strong id="adc-error-title"></strong><span id="adc-error-message"></span></div>
+      <p id="adc-averaging-note" class="adc-averaging-note" hidden>Hardware-averaged frame: clipping in individual integrations may be hidden.</p>
+      <section class="panel plot-panel" aria-labelledby="plot-title">
+        <div class="panel-top"><div class="plot-title"><h2 id="plot-title">Emission spectrum</h2><span id="source-badge" class="badge demo-badge">Synthetic demo</span></div><div class="plot-tools"><button id="peaks-button" class="tool active" aria-pressed="true">Peaks</button><span class="tool-divider"></span><button id="zoom-in" class="icon-button" title="Zoom in" aria-label="Zoom in">+</button><button id="zoom-out" class="icon-button" title="Zoom out" aria-label="Zoom out">−</button><button id="fit-button" class="icon-button" title="Fit spectrum (F)" aria-label="Fit spectrum"><svg><use href="#i-fit"/></svg></button><span class="tool-divider"></span><button id="csv-button" class="tool" title="Export displayed spectrum as CSV">CSV<svg><use href="#i-download"/></svg></button><button id="png-button" class="tool" title="Export plot as PNG">PNG<svg><use href="#i-download"/></svg></button></div></div>
+        <div id="plot-legend" class="plot-legend"></div>
+        <div class="plot-wrap"><canvas id="spectrum-canvas" tabindex="0" aria-label="Interactive spectrum. Scroll to zoom, drag to pan, Shift-drag to select a range, double click to fit."></canvas><div id="plot-tooltip" class="plot-tooltip" hidden></div></div>
+        <div class="plot-bottom"><span><span class="keycap">SCROLL</span> zoom <span class="mini-divider">/</span> drag to pan <span class="mini-divider">/</span> shift + drag to select</span><span id="cursor-readout" class="mono">λ — nm <span class="muted">·</span> I —</span><button id="capture-button" class="button small"><svg><use href="#i-capture"/></svg>Save capture <kbd>S</kbd></button></div>
+      </section>
+      <div class="analysis-grid">
+        <section class="panel library-panel" aria-labelledby="library-title"><div class="panel-top"><div><h2 id="library-title">Reference library <span id="library-count" class="count">0</span></h2><p>Overlay species and compare spectral signatures.</p></div><button id="library-import" class="icon-button bordered" title="Import LIBS reference files" aria-label="Import LIBS files"><svg><use href="#i-upload"/></svg></button></div>
+          <div class="library-toolbar"><div class="search-field"><svg><use href="#i-search"/></svg><input id="reference-search" type="search" placeholder="Find an element or species…" aria-label="Search reference library"></div><select id="match-method" aria-label="Matching method"><option value="SquaresSumSat">Saturated squares</option><option value="SquaresSum">Squared error</option><option value="Multiply">Multiply · C#</option><option value="Cosine">Cosine similarity</option></select><button id="match-button" class="button small">Match</button></div>
+          <div class="reference-table"><div class="reference-head"><span>SPECIES</span><span>SIGNATURE</span><button id="sort-match" title="Sort by match score">MATCH ↓</button><span></span></div><div id="reference-rows"></div><div id="library-empty" class="empty-state" hidden><svg><use href="#i-spark"/></svg><strong>Your reference library starts here</strong><span>Drop LIBS-*.json files to compare elements and ionization states.</span><button id="empty-import" class="button small">Import references</button></div></div>
+          <div class="library-footer"><span id="reference-summary">Local reference files</span><span title="Similarity is a spectral comparison score, not an element probability">Scores ≠ identification confidence <span class="info-circle">i</span></span></div>
+        </section>
+        <section class="panel captures-panel" aria-labelledby="captures-title"><div class="panel-top"><div><h2 id="captures-title">Captures <span id="capture-count" class="count">0</span></h2><p>Keep a spectrum. Compare over time.</p></div><button id="clear-captures" class="icon-button" title="Clear saved captures" aria-label="Clear saved captures"><svg><use href="#i-trash"/></svg></button></div><div id="capture-rows"></div><div id="captures-empty" class="empty-state"><div class="capture-illustration"><svg><use href="#i-capture"/></svg></div><strong>A moment, preserved.</strong><span>Save the current spectrum to compare it with your next measurement.</span><button id="empty-capture" class="button small">Save current spectrum</button></div><div class="capture-footer"><button id="capture-import" class="text-button">Import .spect ↗</button><span>Stored locally</span></div></section>
+      </div>
+      <details class="panel diagnostics"><summary><span><span class="status-dot"></span>Instrument log</span><span id="last-log">Workspace initialized</span><span>⌄</span></summary><ol id="log-entries"></ol></details>
+      <footer class="workspace-footer"><span>SPECTRUMPLOTTER <span class="muted">/ WEB EDITION</span></span><span>3694 pixels <span>·</span> Web Serial <span>·</span> No cloud required</span></footer>
+    </main>
+  </div>
+  <input id="file-input" type="file" accept=".json,.spect" multiple hidden><input id="config-input" type="file" accept=".json" hidden>
+  <div id="drop-overlay" class="drop-overlay" hidden><svg><use href="#i-upload"/></svg><h2>Bring your spectra.</h2><p>Drop LIBS-*.json, .spect, or SensorConfig.json files</p></div>
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+  <dialog id="settings-dialog" aria-labelledby="settings-title"><div class="dialog-header"><div><div class="section-eyebrow">INSTRUMENT SETUP</div><h2 id="settings-title">Calibration & processing</h2></div><button id="close-settings" class="icon-button" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
+    <form id="settings-form">
+      <button id="settings-wizard-button" class="button wizard-launch" type="button"><svg><use href="#i-spark"/></svg>Kalibrierassistent starten</button>
+      <p class="dialog-intro">Map detector pixels to wavelength. Coefficients run from constant to cubic: λ(p) = a₀ + a₁p + a₂p² + a₃p³.</p>
+      <div class="coefficient-labels"><span></span><span>a₀</span><span>a₁</span><span>a₂</span><span>a₃</span></div>
+      <div class="coefficient-row"><label>Wavelength</label><input name="lambda0" aria-label="Wavelength a0" required type="number" step="any"><input name="lambda1" aria-label="Wavelength a1" required type="number" step="any"><input name="lambda2" aria-label="Wavelength a2" required type="number" step="any"><input name="lambda3" aria-label="Wavelength a3" required type="number" step="any"></div>
+      <details class="fit-section"><summary>Fit a polynomial from calibration points</summary><p>One detector pixel and reference wavelength (nm) per line, separated by a comma.</p><textarea id="fit-points" rows="4" placeholder="0, 350&#10;1200, 500&#10;2400, 650&#10;3693, 800" aria-label="Calibration point pairs"></textarea><div class="fit-actions"><select id="fit-degree" aria-label="Polynomial degree"><option value="1">Linear</option><option value="2">Quadratic</option><option value="3" selected>Cubic</option></select><button id="fit-polynomial" class="button small" type="button">Fit coefficients</button><span id="fit-result" class="mono"></span></div></details>
+      <div class="dialog-rule"></div><h3>Intensity correction</h3><p class="field-help">C# compatible: (raw − dark) / 65535 × scale(λ) + offset(λ). ADC counts multiply the result by 65535. Normalization is applied last.</p>
+      <div class="coefficient-row"><label>Scale</label><input name="scale0" aria-label="Scale a0" required type="number" step="any"><input name="scale1" aria-label="Scale a1" required type="number" step="any"><input name="scale2" aria-label="Scale a2" required type="number" step="any"><input name="scale3" aria-label="Scale a3" required type="number" step="any"></div>
+      <div class="coefficient-row"><label>Offset</label><input name="offset0" aria-label="Offset a0" required type="number" step="any"><input name="offset1" aria-label="Offset a1" required type="number" step="any"><input name="offset2" aria-label="Offset a2" required type="number" step="any"><input name="offset3" aria-label="Offset a3" required type="number" step="any"></div>
+      <label class="field-label" for="intensity-units">Unnormalized intensity units</label><select id="intensity-units"><option value="counts">ADC counts</option><option value="relative">Relative · C# compatible</option></select>
+      <div class="dialog-footer"><button id="import-config" type="button" class="button subtle">Import config</button><button id="export-config" type="button" class="button subtle">Export config</button><span></span><button class="button primary" type="submit">Apply calibration</button></div>
+    </form>
+  </dialog>
+  <dialog id="calibration-wizard" aria-labelledby="wizard-title" lang="de">
+    <div class="dialog-header"><div><div class="section-eyebrow">GEFÜHRTE WELLENLÄNGENKALIBRIERUNG</div><h2 id="wizard-title">Kalibrierassistent</h2></div><button id="wizard-close" class="icon-button" aria-label="Assistent abbrechen"><svg><use href="#i-close"/></svg></button></div>
+    <div class="wizard-body">
+      <ol class="wizard-steps" aria-label="Kalibrierschritte"><li data-step="dark"><b>1</b>Dunkelbild</li><li data-step="light"><b>2</b>Referenz aufnehmen</li><li data-step="assign"><b>3</b>Linien zuordnen</li><li data-step="review"><b>4</b>Polynom</li></ol>
+      <div class="wizard-context"><span id="wizard-timing"></span><button id="wizard-connect" class="button small" type="button">Gerät verbinden</button></div>
+      <div id="wizard-error" class="wizard-error" role="alert" hidden></div>
+      <section id="wizard-dark-step" class="wizard-instruction"><span class="wizard-number">01 / DUNKELAUFNAHME</span><h3>Decke den Sensor-Eingang ab, so dass es komplett dunkel ist.</h3><p>Das Dunkelbild wird aus vielen vollständigen Einzelbildern gemittelt. Es wird später von jeder Referenzaufnahme abgezogen.</p><label class="field-label" for="wizard-average-count">Bilder pro Aufnahme</label><select id="wizard-average-count"><option value="16">16 Einzelbilder</option><option value="32" selected>32 Einzelbilder · empfohlen</option><option value="64">64 Einzelbilder</option><option value="128">128 Einzelbilder</option></select><button id="wizard-dark-start" class="button primary" type="button">Abgedeckt · Dunkelbild aufnehmen</button></section>
+      <section id="wizard-light-step" class="wizard-instruction" hidden><span class="wizard-number">02 / REFERENZSPEKTRUM</span><h3>Jetzt ein bekanntes Spektrum anlegen.</h3><p>Entferne die Abdeckung und lege deine Referenzlichtquelle an. Die Aufnahme verwendet dieselbe Integration und Mittelwertanzahl wie das Dunkelbild.</p><label class="field-label" for="wizard-reference-name">Referenzname</label><input id="wizard-reference-name" type="text" maxlength="120" value="Referenz 1"><button id="wizard-light-start" class="button primary" type="button">Spektrum liegt an · Referenz aufnehmen</button></section>
+      <section id="wizard-progress-section" class="wizard-progress-section" hidden><h3 id="wizard-progress-title"></h3><progress id="wizard-progress" max="32" value="0"></progress><div><span id="wizard-progress-count" class="mono" role="status" aria-live="polite">0 / 32 Bilder</span><span id="wizard-progress-percent" class="mono">0 %</span></div><p>Bitte Beleuchtung und Sensorposition während der Aufnahme unverändert lassen. Abbrechen beendet die Aufnahme und trennt den seriellen Port.</p></section>
+      <section id="wizard-assign-step" hidden>
+        <div class="wizard-reference-heading"><div><span class="wizard-number">03 / LINIEN ZUORDNEN</span><h3 id="wizard-reference-title"></h3><p>Klicke einen Peak an und trage seine bekannte Wellenlänge ein. Die X-Achse zeigt unveränderte Detektorpixel.</p></div><button id="wizard-fit-plot" class="button small" type="button"><svg><use href="#i-fit"/></svg>Einpassen</button></div>
+        <div class="panel wizard-plot-panel"><div class="panel-top"><h2>Emission spectrum</h2><span class="badge">Dunkelbild korrigiert · ADC counts</span></div><div class="plot-wrap"><canvas id="wizard-canvas" tabindex="0" aria-label="Referenzspektrum in Pixelkoordinaten. Klicke zum Zuordnen einer Wellenlänge. Mausrad zoomt, Ziehen verschiebt."></canvas><div id="wizard-tooltip" class="plot-tooltip" hidden></div></div></div>
+        <form id="wizard-point-form" class="wizard-point-form"><div><label for="wizard-pixel">Detektorpixel</label><input id="wizard-pixel" required type="number" min="0" max="3693" step="any" placeholder="Peak anklicken"></div><div><label for="wizard-wavelength">Bekannte Wellenlänge</label><div class="number-field"><input id="wizard-wavelength" required type="number" min="0.000001" step="any" placeholder="z. B. 589.0"><span>nm</span></div></div><button class="button" type="submit">Zuordnung hinzufügen</button></form>
+        <div id="wizard-current-points" class="wizard-current-points"></div>
+        <div class="wizard-reference-actions"><button id="wizard-retake" class="button subtle" type="button">Referenz erneut aufnehmen</button><button id="wizard-accept-reference" class="button primary" type="button">Zuordnungen korrekt · Übernehmen</button></div>
+      </section>
+      <section id="wizard-review-step" hidden><span class="wizard-number">04 / KALIBRIERUNG PRÜFEN</span><h3>Referenzen übernommen.</h3><p class="dialog-intro">Ergänze weitere bekannte Spektren oder berechne aus allen bestätigten Zuordnungen die Wellenlängenkalibrierung.</p><div id="wizard-reference-list" class="wizard-reference-list"></div><div class="wizard-fit-controls"><label for="wizard-degree">Polynomgrad</label><select id="wizard-degree"><option value="auto">Automatisch · bis kubisch</option><option value="1">Linear · mindestens 2 Pixel</option><option value="2">Quadratisch · mindestens 3 Pixel</option><option value="3">Kubisch · mindestens 4 Pixel</option></select><span id="wizard-fit-summary" class="mono" role="status"></span></div><pre id="wizard-coefficients" class="wizard-coefficients"></pre><div id="wizard-residuals" class="wizard-residuals"></div><p id="wizard-fit-error" class="wizard-fit-error"></p><div class="wizard-finish-actions"><button id="wizard-more" class="button" type="button">Weitere Referenz</button><button id="wizard-finish" class="button primary" type="button">Fertig · Kalibrierung anwenden</button></div></section>
+      <div class="wizard-footer"><span id="wizard-dark-summary">Mit „Fertig“ werden Dunkelbild und Polynom gespeichert.</span><button id="wizard-cancel" class="button subtle" type="button">Abbrechen</button></div>
+    </div>
+  </dialog>
+  <dialog id="device-info-dialog" aria-labelledby="device-info-title">
+    <div class="dialog-header"><div><div class="section-eyebrow">VERIFIED INSTRUMENT</div><h2 id="device-info-title">Firmware & build information</h2></div><button id="close-device-info" class="icon-button" aria-label="Close device information"><svg><use href="#i-close"/></svg></button></div>
+    <div class="device-info-body"><p id="device-info-description" class="dialog-intro"></p><dl id="device-info-rows" class="device-info-rows"></dl></div>
+  </dialog>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
