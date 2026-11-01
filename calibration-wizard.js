@@ -14,12 +14,18 @@ export class CalibrationWizard {
     this.plot.peaks=false;
     $('wizard-close').onclick=() => this.cancel();$('wizard-cancel').onclick=()=>this.cancel();
     this.dialog.addEventListener('cancel',event=>{event.preventDefault();this.cancel();});
-    $('wizard-connect').onclick=async()=>{try{await this.connect();this.render();}catch(error){this.error(error.message);}};
+    $('wizard-connect').onclick=async()=>{
+      if(this.connecting)return;const session=this.session;this.connecting=true;this.render();
+      try{await this.connect();if(session===this.session)this.error(this.device.verified?'':'Verbindung fehlgeschlagen. Port und Firmware prüfen.');}
+      catch(error){if(session===this.session)this.error(error.message);}
+      finally{if(session===this.session){this.connecting=false;this.render();}}
+    };
     $('wizard-dark-start').onclick=()=>this.capture('dark');$('wizard-light-start').onclick=()=>this.capture('light');
     $('wizard-point-form').onsubmit=event=>{event.preventDefault();this.addPoint();};
     $('wizard-pixel').oninput=()=>this.markers();
     $('wizard-fit-plot').onclick=()=>this.plot.fit();
     $('wizard-retake').onclick=()=>{this.retakeId=this.current?.id;$('wizard-reference-name').value=this.current?.name||'';this.current=null;this.show('light');};
+    $('wizard-back-to-review').onclick=()=>{this.current=null;this.retakeId=null;this.show('review');};
     $('wizard-accept-reference').onclick=()=>this.acceptReference();
     $('wizard-more').onclick=()=>{this.current=null;this.retakeId=null;$('wizard-reference-name').value=`Referenz ${this.references.length+1}`;this.show('light');};
     $('wizard-degree').onchange=()=>this.renderReview();
@@ -28,7 +34,7 @@ export class CalibrationWizard {
   get active(){return this.dialog.open;}
   async open(){
     if(this.active)return;
-    const session=++this.session;this.references=[];this.current=null;this.retakeId=null;this.dark=null;this.result=null;this.settings=null;this.controller=null;this.busy=true;this.stage='dark';
+    const session=++this.session;this.references=[];this.current=null;this.retakeId=null;this.dark=null;this.result=null;this.settings=null;this.controller=null;this.connecting=false;this.busy=true;this.stage='dark';
     $('wizard-timing').textContent='Messung vorbereiten …';
     $('wizard-degree').value='auto';$('wizard-average-count').disabled=false;$('wizard-average-count').value='32';
     $('wizard-dark-summary').textContent='Mit „Fertig“ werden Dunkelbild und Polynom gespeichert.';
@@ -54,7 +60,7 @@ export class CalibrationWizard {
     for(const stage of ['dark','light','assign','review'])$(`wizard-${stage}-step`).hidden=this.busy||this.stage!==stage;
     $('wizard-progress-section').hidden=!this.busy;
     for(const item of this.dialog.querySelectorAll('[data-step]'))item.classList.toggle('active',item.dataset.step===this.stage);
-    $('wizard-connect').hidden=this.device.verified; $('wizard-connect').disabled=this.busy;
+    $('wizard-connect').hidden=this.device.verified; $('wizard-connect').disabled=this.busy||this.connecting;
     $('wizard-dark-start').disabled=!this.device.verified||this.busy;
     $('wizard-light-start').disabled=!this.device.verified||this.busy;
     if(!this.device.verified&&!this.busy&&!$('wizard-error').textContent)this.error('Verbinde das Messgerät, bevor du die Aufnahme bestätigst.');
@@ -122,6 +128,7 @@ export class CalibrationWizard {
       row.append(input,node('span','','nm'),button('Entfernen',()=>{this.current.points=this.current.points.filter(p=>p!==point);this.renderPoints();}));list.append(row);
     }
     $('wizard-accept-reference').disabled=!this.current.points.length;this.markers();
+    $('wizard-back-to-review').hidden=!this.references.length;
   }
   acceptReference(){
     if(!this.current?.points.length)return;
